@@ -1,0 +1,21 @@
+# Web 框架
+fastapi>=0.104.1
+uvicorn[standard]>=0.24.0
+
+# ORM / 数据库
+SQLAlchemy>=2.0.23
+# PostgreSQL 时启用（SQLite 无需）
+# psycopg2-binary>=2.9.9
+
+# 认证
+python-jose[cryptography]>=3.3.0
+passlib>=1.7.4
+bcrypt>=4.0.1
+python-multipart>=0.0.6
+
+# 校验 / 配置
+pydantic>=2.5.2
+python-dotenv>=1.0.0
+
+# 时区（Python < 3.9 需要，3.9+ 用内置 zoneinfo）
+tzdata>=2024.1

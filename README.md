@@ -249,9 +249,9 @@ public/
 
 ```powershell
 cd backend
-D:\Harness\Py312\python.exe backup_db.py            # 备份
-D:\Harness\Py312\python.exe backup_db.py --list     # 列出
-D:\Harness\Py312\python.exe backup_db.py --restore inventory_20260101_120000.db
+python backup_db.py                                 # 备份
+python backup_db.py --list                          # 列出
+python backup_db.py --restore inventory_20260101_120000.db   # 还原
 ```
 
 备份文件在 `backend/backups/`。

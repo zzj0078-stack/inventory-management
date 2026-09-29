@@ -93,7 +93,10 @@ if not "!CNT!"=="0" (
 
 echo [4/5] Pushing...
 echo.
-git push -u origin main
+echo       (this network is slow, please wait 1-3 minutes)
+echo.
+REM bypass broken/absent global proxy, force HTTP/1.1, tolerate slow links
+git -c http.proxy= -c https.proxy= -c http.version=HTTP/1.1 -c http.postBuffer=524288000 -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=180 push -u origin main --progress
 if errorlevel 1 (
     echo.
     echo ------------------------------------------------------------

@@ -2,12 +2,9 @@
 setlocal
 set ROOT=%~dp0
 
-REM ---------- locate python ----------
-call "%ROOT%tools\find-python.bat"
-if errorlevel 1 (
-    pause
-    exit /b 1
-)
+REM ---------- locate python (optional: only used to clean orphan processes) ----------
+call "%ROOT%tools\find-python.bat" >nul 2>&1
+REM If not found that is fine - stopping by port still works
 
 echo ========================================
 echo   Stop Inventory System

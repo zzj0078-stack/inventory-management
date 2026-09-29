@@ -51,10 +51,25 @@ python run.py
 
 > ⚠️ **首次登录后立即修改 admin 密码。**
 
-### 5. Windows 一键脚本
+### 5. Windows 一键脚本（可选）
 
-仓库中的 `.bat` 脚本**硬编码了 Python 路径** `D:\Harness\Py312\python.exe`。
-克隆到别的机器后，需把各 `.bat` 第 4 行的 `set PY=...` 改成你自己的 Python 路径，或直接按上面第 2-4 步手动执行。
+`.bat` 脚本**不硬编码 Python 路径**，启动时会自动探测，无需手工修改：
+
+| 优先级 | 来源 |
+|--------|------|
+| 1 | 环境变量 `INVENTORY_PYTHON`（手动指定） |
+| 2 | 项目虚拟环境 `backend\.venv` 或 `.venv` |
+| 3 | `py -3` 启动器 |
+| 4 | PATH 中的 `python`（跳过微软商店占位程序） |
+| 5 | 常见安装目录 `%LOCALAPPDATA%\Programs\Python\Python3xx`、`C:\Python3xx` 等 |
+
+找不到时会提示安装方式，或指定已有解释器：
+
+```powershell
+setx INVENTORY_PYTHON "C:\Path\to\python.exe"
+```
+
+一键脚本流程：`go.bat` = 停旧进程 → 构建前端 → 启动后端 → 打开浏览器。
 
 ---
 

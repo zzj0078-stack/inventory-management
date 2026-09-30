@@ -30,6 +30,8 @@ import { routes as stockRoutes } from '../../cf/routes/stock.js'
 import { routes as saleReturnRoutes } from '../../cf/routes/saleReturns.js'
 import { routes as purchaseReturnRoutes } from '../../cf/routes/purchaseReturns.js'
 import { routes as paymentRoutes } from '../../cf/routes/payments.js'
+import { routes as reportRoutes } from '../../cf/routes/reports.js'
+import { routes as systemRoutes } from '../../cf/routes/system.js'
 
 const ROUTES = [
   ...authRoutes,
@@ -44,17 +46,16 @@ const ROUTES = [
   ...saleReturnRoutes,
   ...purchaseReturnRoutes,
   ...paymentRoutes,
+  ...reportRoutes,
+  ...systemRoutes,
 ]
 
-/** 尚未移植的模块（按路径区分，返回 501 时告知阶段） */
-const PENDING = [
-  { re: /^\/api\/ext\/reports/, module: '报表统计', phase: '阶段 4' },
-  { re: /^\/api\/ext\/logs/, module: '操作日志', phase: '阶段 4' },
-  { re: /^\/api\/ext\/dashboard/, module: '首页看板', phase: '阶段 4' },
-  { re: /^\/api\/ext\/sales-daily/, module: '首页看板', phase: '阶段 4' },
-  { re: /^\/api\/ext\/health-check/, module: '数据自检', phase: '阶段 4' },
-  { re: /^\/api\/ext\/export/, module: 'CSV 导出', phase: '阶段 4' },
-]
+/**
+ * 尚未移植的模块。
+ * 四个阶段已全部完成，这里保留空数组：未命中路由一律 404。
+ * 若将来再加新模块，把 { re, module, phase } 加回来即可获得更友好的 501 提示。
+ */
+const PENDING = []
 
 // ---------------- CORS ----------------
 

@@ -57,11 +57,38 @@ async function req(method, path, { token, body, raw } = {}) {
       data = raw ? text : null
     }
   }
-  return { status: res.status, data, text }
+  return {
+    status: res.status,
+    data,
+    text,
+    headers: Object.fromEntries(res.headers.entries()),
+  }
 }
 
 function section(title) {
   console.log(`\n${'='.repeat(66)}\n  ${title}\n${'='.repeat(66)}`)
+}
+
+/**
+ * 取原始字节。
+ * 为什么需要：Response.text() 按 WHATWG 规范用「UTF-8 decode」解码，
+ * 会**自动剥掉开头的 BOM**，所以想验证 BOM 必须看 bytes。
+ */
+async function reqRaw(path, token) {
+  const res = await fetch(BASE + path, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  const bytes = new Uint8Array(await res.arrayBuffer())
+  return {
+    status: res.status,
+    headers: Object.fromEntries(res.headers.entries()),
+    bytes,
+    text: new TextDecoder('utf-8').decode(bytes), // 这里也会去 BOM，用于解析内容
+  }
+}
+
+function hasBom(bytes) {
+  return bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
 }
 
 async function main() {
@@ -270,41 +297,37 @@ async function main() {
   }
 
   // ---------------- 错误语义 ----------------
-  section('10. 已实现 / 未实现 / 404 语义')
+  section('10. 四阶段接口全部已实现 / 404 语义')
   {
-    const r1 = await req('GET', '/api/purchase', { token: T })
-    check('采购单已实现 → 200', r1.status === 200, `status=${r1.status}`)
+    const expect200 = async (path, label) => {
+      const r = await req('GET', path, { token: T })
+      check(`${label} → 200`, r.status === 200, `status=${r.status} ${r.data?.detail || ''}`)
+      return r
+    }
 
-    const r1b = await req('GET', '/api/sales', { token: T })
-    check('销售单已实现 → 200', r1b.status === 200, `status=${r1b.status}`)
-
-    const r1c = await req('GET', '/api/ext/stock-logs', { token: T })
-    check('库存流水已实现 → 200', r1c.status === 200, `status=${r1c.status}`)
-
-    const r1d = await req('GET', '/api/ext/payments', { token: T })
-    check('收付款已实现 → 200', r1d.status === 200, `status=${r1d.status}`)
-
-    const r1e = await req('GET', '/api/ext/sale-returns', { token: T })
-    check('销售退货已实现 → 200', r1e.status === 200, `status=${r1e.status}`)
-
-    const r1f = await req('GET', '/api/ext/receivables', { token: T })
-    check('应收应付已实现 → 200', r1f.status === 200, `status=${r1f.status}`)
-
-    const r2 = await req('GET', '/api/ext/reports/sales', { token: T })
-    check('报表（阶段4）→ 501', r2.status === 501, `status=${r2.status}`)
-    check('501 提示包含阶段信息', /阶段/.test(r2.data?.detail || ''), r2.data?.detail)
+    await expect200('/api/purchase', '采购单')
+    await expect200('/api/sales', '销售单')
+    await expect200('/api/ext/stock-logs', '库存流水')
+    await expect200('/api/ext/payments', '收付款')
+    await expect200('/api/ext/sale-returns', '销售退货')
+    await expect200('/api/ext/purchase-returns', '采购退货')
+    await expect200('/api/ext/receivables', '应收应付')
+    await expect200('/api/ext/reports/sales', '报表·销售')
+    await expect200('/api/ext/reports/inventory', '报表·库存')
+    await expect200('/api/ext/logs', '操作日志')
+    await expect200('/api/ext/health-check', '数据自检')
+    await expect200('/api/ext/dashboard', '首页看板')
+    await expect200('/api/ext/sales-daily', '销售日报')
 
     const r3 = await req('GET', '/api/nonexistent-endpoint', { token: T })
     check('未知接口 → 404', r3.status === 404, `status=${r3.status}`)
+    check('404 提示含路径', /不存在/.test(r3.data?.detail || ''), r3.data?.detail)
 
-    const r4 = await req('GET', '/api/ext/logs', { token: T })
-    check('操作日志（阶段4）→ 501', r4.status === 501, `status=${r4.status}`)
+    const r4 = await req('GET', '/api/ext/export/unknown-kind', { token: T })
+    check('未知导出类型 → 404', r4.status === 404, `status=${r4.status}`)
 
-    const r5 = await req('GET', '/api/ext/dashboard', { token: T })
-    check('首页看板（阶段4）→ 501', r5.status === 501, `status=${r5.status}`)
-
-    const r6 = await req('GET', '/api/ext/export/sales', { token: T })
-    check('CSV 导出（阶段4）→ 501', r6.status === 501, `status=${r6.status}`)
+    const r5 = await req('GET', '/api/users')
+    check('无 token 仍 401（未因放量而失守）', r5.status === 401, `status=${r5.status}`)
   }
 
   // ---------------- 采购单全流程 ----------------
@@ -897,8 +920,177 @@ async function main() {
     check('兼容字段 received/paid', d.received === d.recv_from_customer && d.paid === d.paid_to_supplier)
   }
 
+  // ---------------- 首页看板 + 销售日报 ----------------
+  const today = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+
+  section('24. 首页看板 + 销售日报')
+  {
+    const r1 = await req('GET', '/api/ext/dashboard', { token: T })
+    check('看板 200', r1.status === 200, `status=${r1.status}`)
+    const d = r1.data || {}
+
+    check('今日销售额 = 80', Math.abs(d.today_sales - 80) < 0.01, String(d.today_sales))
+    check('今日销售笔数 = 1', d.today_sales_count === 1, String(d.today_sales_count))
+    check('今日采购额 = 110', Math.abs(d.today_purchase - 110) < 0.01, String(d.today_purchase))
+    check('今日采购笔数 = 1', d.today_purchase_count === 1, String(d.today_purchase_count))
+    check('待收货 = 0（无已审核未收货单）', d.pending_purchase_in === 0, String(d.pending_purchase_in))
+    check('待发货 = 0', d.pending_sales_out === 0, String(d.pending_sales_out))
+    check('库存总量 = 10（8 + 2）', d.inventory_total === 10, String(d.inventory_total))
+    check('低库存预警 = 1（wh2 剩 2 ≤ 最低 5）', d.low_stock_count === 1, String(d.low_stock_count))
+
+    // 看板的应收应付必须和 /receivables 完全一致（两处口径不能漂）
+    const rec = await req('GET', '/api/ext/receivables', { token: T })
+    check('看板应收 = 应收应付接口', Math.abs(d.receivable - rec.data.receivable) < 0.01,
+      `${d.receivable} vs ${rec.data.receivable}`)
+    check('看板应付 = 应收应付接口', Math.abs(d.payable - rec.data.payable) < 0.01,
+      `${d.payable} vs ${rec.data.payable}`)
+
+    const r2 = await req('GET', '/api/ext/sales-daily?days=7', { token: T })
+    check('销售日报 200', r2.status === 200, `status=${r2.status}`)
+    check('返回 7 天（缺日补 0）', (r2.data?.items || []).length === 7, String(r2.data?.items?.length))
+    check('最后一天 = 今天', r2.data?.items?.[6]?.date === today, r2.data?.items?.[6]?.date)
+    check('起始日 = 6 天前', r2.data?.start === r2.data?.items?.[0]?.date, r2.data?.start)
+    check('7 天销售额 = 80', Math.abs((r2.data?.total_amount ?? 0) - 80) < 0.01, String(r2.data?.total_amount))
+    check('7 天笔数 = 1', r2.data?.total_count === 1, String(r2.data?.total_count))
+    check('日均额已计算', typeof r2.data?.avg_amount === 'number', String(r2.data?.avg_amount))
+    check('日期连续递增', (r2.data?.items || []).every((x, i, a) => i === 0 || x.date > a[i - 1].date))
+
+    const r3 = await req('GET', '/api/ext/sales-daily?days=999', { token: T })
+    check('days 上限收敛到 365', r3.data?.days === 365, String(r3.data?.days))
+    const r4 = await req('GET', '/api/ext/sales-daily?days=0', { token: T })
+    check('days=0 回落到默认 30', r4.data?.days === 30, String(r4.data?.days))
+  }
+
+  // ---------------- 报表 ----------------
+  section('25. 报表 ×4')
+  {
+    const r1 = await req('GET', '/api/ext/reports/sales', { token: T })
+    check('报表·销售 200', r1.status === 200, `status=${r1.status}`)
+    check('销售额 = 80', Math.abs(r1.data?.total_amount - 80) < 0.01, String(r1.data?.total_amount))
+    check('销售单数 = 1', r1.data?.order_count === 1, String(r1.data?.order_count))
+    check('按客户分组含测试客户',
+      (r1.data?.by_customer || []).some((x) => x.name === '__冒烟测试客户'), JSON.stringify(r1.data?.by_customer))
+    check('按商品分组含测试商品',
+      (r1.data?.by_product || []).some((x) => x.name === '__冒烟测试商品'), JSON.stringify(r1.data?.by_product))
+
+    // 关键回归：结束日期当天的数据不能被漏掉
+    // （Python 版 created_at <= 'YYYY-MM-DD' 会漏掉当天，这里已修）
+    const r1b = await req('GET', `/api/ext/reports/sales?start_date=${today}&end_date=${today}`, { token: T })
+    check('报表·销售 单日区间含当天数据 = 80', Math.abs(r1b.data?.total_amount - 80) < 0.01,
+      `${r1b.data?.total_amount}（若为 0 则「结束日期漏当天」的 bug 复现了）`)
+
+    const r2 = await req('GET', '/api/ext/reports/purchase', { token: T })
+    check('报表·采购 200', r2.status === 200, `status=${r2.status}`)
+    check('采购额 = 110', Math.abs(r2.data?.total_amount - 110) < 0.01, String(r2.data?.total_amount))
+    check('按供应商分组含测试供应商',
+      (r2.data?.by_supplier || []).some((x) => x.name === '__冒烟测试供应商'))
+
+    const r3 = await req('GET', '/api/ext/reports/profit', { token: T })
+    check('报表·利润 200', r3.status === 200, `status=${r3.status}`)
+    check('销售收入 = 80', Math.abs(r3.data?.total_sale - 80) < 0.01, String(r3.data?.total_sale))
+    check('成本 = 4 × 10.5 = 42', Math.abs(r3.data?.total_cost - 42) < 0.01, String(r3.data?.total_cost))
+    check('毛利 = 38', Math.abs(r3.data?.profit - 38) < 0.01, String(r3.data?.profit))
+    check('毛利率 = 47.5%', Math.abs(r3.data?.profit_rate - 47.5) < 0.01, String(r3.data?.profit_rate))
+    check('按毛利倒序且明细有商品名',
+      (r3.data?.detail || [])[0]?.name === '__冒烟测试商品', r3.data?.detail?.[0]?.name)
+
+    const r4 = await req('GET', '/api/ext/reports/inventory', { token: T })
+    check('报表·库存 200', r4.status === 200, `status=${r4.status}`)
+    check('库存总量 = 10', r4.data?.total_qty === 10, String(r4.data?.total_qty))
+    check('库存金额 = 10 × 10.5 = 105', Math.abs(r4.data?.total_value - 105) < 0.01, String(r4.data?.total_value))
+    check('明细带仓库名与低库存标记',
+      (r4.data?.items || []).length === 2 && typeof r4.data?.items?.[0]?.low === 'boolean',
+      `rows=${r4.data?.items?.length}`)
+  }
+
+  // ---------------- 操作日志 ----------------
+  section('26. 操作日志')
+  {
+    const r1 = await req('GET', '/api/ext/logs', { token: T })
+    check('日志列表 200', r1.status === 200, `status=${r1.status}`)
+    check('有日志记录', (r1.data?.total || 0) > 0, `total=${r1.data?.total}`)
+    const row = (r1.data?.items || [])[0]
+    check('日志字段完整',
+      !!row?.username && !!row?.module && !!row?.action && !!row?.created_at,
+      `${row?.username}/${row?.module}/${row?.action}`)
+
+    const r2 = await req('GET', '/api/ext/logs?module=' + encodeURIComponent('采购管理'), { token: T })
+    check('按模块筛选 200', r2.status === 200)
+    check('筛选结果模块正确', (r2.data?.items || []).every((x) => x.module === '采购管理'),
+      `total=${r2.data?.total}`)
+
+    const r3 = await req('GET', '/api/ext/logs?keyword=' + encodeURIComponent('__冒烟测试客户'), { token: T })
+    check('关键词搜索 200', r3.status === 200)
+    check('搜到相关日志', (r3.data?.total || 0) > 0, `total=${r3.data?.total}`)
+  }
+
+  // ---------------- 数据自检 ----------------
+  section('27. 数据自检（干净数据应无问题）')
+  {
+    const r1 = await req('GET', '/api/ext/health-check', { token: T })
+    check('自检 200', r1.status === 200, `status=${r1.status}`)
+    check('ok = true', r1.data?.ok === true, JSON.stringify(r1.data?.issues?.slice(0, 2)))
+    check('错误数 = 0', r1.data?.error_count === 0, String(r1.data?.error_count))
+    check('警告数 = 0（金额与明细一致）', r1.data?.warn_count === 0,
+      JSON.stringify((r1.data?.issues || []).filter((i) => i.level === 'warn')))
+    check('可修复数 = 0', r1.data?.fixable_count === 0, String(r1.data?.fixable_count))
+
+    const r2 = await req('POST', '/api/ext/health-check/fix', { token: T })
+    check('一键修复 200', r2.status === 200, `status=${r2.status}`)
+    check('无问题时可修复数 = 0', r2.data?.fixed_count === 0, String(r2.data?.fixed_count))
+    check('修复后 ok = true', r2.data?.ok === true)
+  }
+
+  // ---------------- CSV 导出 ----------------
+  section('28. CSV 导出 ×6')
+  {
+    const parseCsv = (text) => {
+      const body = text.replace(/^\ufeff/, '')
+      return body.split('\r\n').filter((l) => l.length > 0).map((l) => l.split(','))
+    }
+
+    const cases = [
+      ['inventory', ['商品', '商品编码', '仓库', '数量', '成本价', '金额', '最低库存'], 2],
+      ['sales', ['销售单号', '客户', '金额', '状态', '发票号', '送货地址', '创建时间'], 1],
+      ['purchase', ['采购单号', '供应商', '金额', '状态', '发票号', '创建时间'], 1],
+      ['stocklog', ['ID', '商品', '仓库', '类型', '数量', '变动前', '变动后', '关联单号', '时间'], 1],
+      ['payments', ['单号', '类型', '对象类型', '往来单位', '金额', '支付方式', '凭证号', '备注', '时间'], 3],
+      ['logs', ['ID', '用户', '模块', '动作', '对象', '详情', '时间'], 1],
+    ]
+
+    for (const [kind, header, minRows] of cases) {
+      const r = await reqRaw(`/api/ext/export/${kind}`, T)
+      check(`导出 ${kind} 200`, r.status === 200, `status=${r.status}`)
+      check(`导出 ${kind} Content-Type`,
+        String(r.headers?.['content-type'] || '').includes('text/csv'),
+        r.headers?.['content-type'])
+      check(`导出 ${kind} 带 BOM（Excel 不乱码）`, hasBom(r.bytes),
+        `前 3 字节 = ${[...r.bytes.slice(0, 3)].map((b) => b.toString(16)).join(' ')}`)
+      const rows = parseCsv(r.text || '')
+      check(`导出 ${kind} 表头正确`, JSON.stringify(rows[0]) === JSON.stringify(header), JSON.stringify(rows[0]))
+      check(`导出 ${kind} 至少 ${minRows} 行数据`, rows.length - 1 >= minRows, `rows=${rows.length - 1}`)
+      check(`导出 ${kind} 带下载文件名`,
+        /attachment; filename=".+\.csv"/.test(String(r.headers?.['content-disposition'] || '')),
+        r.headers?.['content-disposition'])
+    }
+
+    // 关键回归：Python 版状态映射残缺（status=3 被标成「已作废」，>=4 直接崩）
+    const rs = await reqRaw('/api/ext/export/sales', T)
+    const srows = parseCsv(rs.text || '')
+    check('销售导出状态显示「已退货」而非「已作废」', srows[1]?.[3] === '已退货', srows[1]?.[3])
+
+    const rp = await reqRaw('/api/ext/export/purchase', T)
+    const prows = parseCsv(rp.text || '')
+    check('采购导出状态显示「部分退货」', prows[1]?.[3] === '部分退货', prows[1]?.[3])
+  }
+
   // ---------------- 清理 ----------------
-  section('23. 尽力清理（收尾由 cf/smoke-cleanup.sql 完成）')
+  section('29. 尽力清理（收尾由 cf/smoke-cleanup.sql 完成）')
   {
     // 已收货/已发货的单据接口不允许删除，且商品有库存时也不能删，
     // 这些残留由 cf/smoke-cleanup.sql 用 SQL 彻底清掉。

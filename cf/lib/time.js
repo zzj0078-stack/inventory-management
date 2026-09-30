@@ -76,3 +76,23 @@ export function dateOf(value) {
   return String(value).slice(0, 10)
 }
 
+/**
+ * 把 'YYYY-MM-DD' 补成当天末尾，用于 `created_at <= ?` 的范围上界。
+ *
+ * 为什么需要：created_at 存的是 'YYYY-MM-DD HH:MM:SS.ffffff'（TEXT），
+ * 直接和 '2026-09-30' 比字符串时，'2026-09-30 10:00:00' > '2026-09-30'
+ * （前 10 位相同后，长的那串更大），导致**结束日期当天的数据全部被漏掉**。
+ * Python 版存在这个问题，Cloudflare 版已修正。
+ */
+export function endOfDayBound(value) {
+  if (!value) return value
+  const s = String(value)
+  return /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s} 23:59:59.999999` : s
+}
+
+/** 日期加减天数（只处理 'YYYY-MM-DD'，用 UTC 避免时区偏移） */
+export function addDays(dateStr, delta) {
+  const base = new Date(`${dateStr}T00:00:00Z`)
+  return new Date(base.getTime() + delta * 86400000).toISOString().slice(0, 10)
+}
+

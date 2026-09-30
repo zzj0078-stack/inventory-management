@@ -10,7 +10,7 @@
  */
 
 import { bad, notFound, ok, json, paginated, paginationOf, intParam, likeArg } from './http.js'
-import { nowLocal, dateOf, isoOf, dateStamp } from './time.js'
+import { nowLocal, dateOf, isoOf, dateStamp, endOfDayBound } from './time.js'
 import { logOp } from './oplog.js'
 import { planStock } from './stock.js'
 
@@ -304,8 +304,9 @@ export function makeOrderRoutes(cfg) {
     }
     const endDate = url.searchParams.get('end_date')
     if (endDate) {
+      // 补成当天末尾，否则会漏掉结束日期当天的数据（Python 版的 bug，这里已修）
       where.push('o.created_at <= ?')
-      params.push(endDate)
+      params.push(endOfDayBound(endDate))
     }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''

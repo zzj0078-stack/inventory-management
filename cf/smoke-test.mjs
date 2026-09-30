@@ -37,16 +37,51 @@ function check(label, cond, extra = '') {
   }
 }
 
+/**
+ * 发一次请求。
+ *
+ * 为什么要重试：`wrangler pages dev`（本地代理）在密集连续请求下会偶发掉连接，
+ * 报 "Network connection lost"，**请求根本没到达 worker**（服务端日志里没有对应的
+ * info 行）。这会让「审核」这类没有断言的调用静默失败，进而引发几十个连锁失败，
+ * 把真正的根因埋掉。
+ *
+ * 判定依据：fetch 直接抛异常、或连接被重置 —— 即**没有拿到任何 HTTP 状态**。
+ * 这跟「拿到了 400/500 业务错误」是两回事，后者绝不重试。
+ * 重试是安全的：连接在到达 worker 前就断了，不存在写了一半的情况。
+ */
+const MAX_NET_RETRY = 3
+let netRetries = 0
+
 async function req(method, path, { token, body, raw } = {}) {
   const headers = {}
   if (body !== undefined) headers['Content-Type'] = 'application/json'
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(BASE + path, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  })
+  let res = null
+  let lastErr = null
+
+  for (let attempt = 1; attempt <= MAX_NET_RETRY; attempt++) {
+    try {
+      res = await fetch(BASE + path, {
+        method,
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+      })
+      break
+    } catch (e) {
+      lastErr = e
+      if (attempt < MAX_NET_RETRY) {
+        netRetries++
+        await new Promise((r) => setTimeout(r, 300 * attempt))
+      }
+    }
+  }
+
+  if (!res) {
+    // 重试完仍拿不到响应：如实报出来，不要伪装成业务错误
+    console.log(`  !!   网络失败 ${method} ${path}（重试 ${MAX_NET_RETRY} 次）：${lastErr && lastErr.message}`)
+    return { status: 0, data: null, text: '', headers: {}, netError: true }
+  }
 
   let data = null
   const text = await res.text()
@@ -447,7 +482,10 @@ async function main() {
     check('税率 0 → 税额 0', Math.abs(r1.data?.tax_amount ?? 0) < 0.01, String(r1.data?.tax_amount))
     check('带出客户名', r1.data?.customer_name === '__冒烟测试客户', r1.data?.customer_name)
 
-    await req('PUT', `/api/sales/${salesId}/approve`, { token: T })
+    // 必须断言：之前这里不断言，审核失败会被静默吞掉，导致后面一连串
+    // 失败都指向「发货」而不是真正的根因。
+    const rap = await req('PUT', `/api/sales/${salesId}/approve`, { token: T })
+    check('销售单审核 200', rap.status === 200, `status=${rap.status} ${rap.data?.detail || ''}`)
 
     const r2 = await req('PUT', `/api/sales/${salesId}/ship`, {
       token: T,
@@ -645,7 +683,21 @@ async function main() {
     check('无 user:add → 403', r6.status === 403, `status=${r6.status}`)
 
     // 清理
-    if (uid) await req('DELETE', `/api/users/${uid}`, { token: T })
+    if (uid) {
+      const del = await req('DELETE', `/api/users/${uid}`, { token: T })
+      // 该用户已登录过、产生过操作日志 → 后端应改为「停用」而不是 500
+      check('删除有历史记录的用户 → 200（改为停用，不报外键错）',
+        del.status === 200, `status=${del.status}`)
+      check('返回 disabled=true 与说明', del.data?.disabled === true && !!del.data?.message,
+        del.data?.message)
+
+      // 停用后应无法登录：后端对 status=0 返回 403（比 401 更准确地区分了「禁用」）
+      const relogin = await req('POST', '/api/auth/login', {
+        body: { username: 'smoke_noperm', password: 'Smoke!2345' },
+      })
+      check('停用后无法登录 → 403', relogin.status === 403, `status=${relogin.status}`)
+      check('提示「已被禁用」', /已被禁用/.test(relogin.data?.detail || ''), relogin.data?.detail)
+    }
     if (roleId) await req('DELETE', `/api/auth/roles/${roleId}`, { token: T })
   }
 
@@ -1153,6 +1205,11 @@ async function main() {
 function finish() {
   console.log(`\n${'='.repeat(66)}`)
   console.log(`  通过 ${pass}  失败 ${fail}`)
+  if (netRetries) {
+    // 本地 wrangler 代理偶发掉连接，重试次数单独报出来，
+    // 免得把「环境抖动」误读成「接口不稳定」
+    console.log(`  网络重试 ${netRetries} 次（本地 dev 代理抖动，非接口问题）`)
+  }
   if (failures.length) {
     console.log('  失败项：')
     for (const f of failures) console.log(`    - ${f}`)

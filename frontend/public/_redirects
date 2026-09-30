@@ -1,12 +1,21 @@
 # Cloudflare Pages 路由规则
 #
-# Vue Router 用的是 createWebHistory()（history 模式），
-# 直接访问 /sales、/products 这类深链接时，静态资源不存在，
-# 需要回退到 index.html 由前端路由接管，否则会 404。
+# 顺序很重要：**从上往下第一条匹配生效**。
 #
-# 说明：
-#   - /api/* 由 functions/api/[[route]].js 处理，Pages Functions 优先于本文件
-#   - 放在 frontend/public/ 下，vite 构建时会原样复制到 dist 根目录
-#   - 最后一行是兜底，必须放最后
+# 1) /m 与 /m/*  → 移动端 App
+# 2) /uploads/* 由 functions/uploads/[[path]].js 处理图片（Functions 优先于本文件）
+# 3) /api/*     由 functions/api/[[route]].js 处理（同上）
+# 4) 其余 → 桌面端 index.html
+#
+# ⚠️ 目标必须写**不带 .html 的 /mobile**，不能写 /mobile.html：
+#    Pages 有「clean URL」行为，请求 /mobile.html 会被 308 重定向到 /mobile。
+#    写成 /mobile.html 时，/m/sales/5 会先被改写、再被 308 成 /mobile，
+#    **深链接路径就丢了**（分享链接/收藏/刷新全部回到首页）。
+#    写成 /mobile 则直接 200 返回移动端页面，且 URL 原样保留。
+#
+# 为什么要 /m 单独一条：/m/* 的 * 至少要匹配一个字符，/m（无斜杠）匹配不到，
+# 不补这条的话用户手输 example.com/m 会落到桌面端。
 
-/*    /index.html   200
+/m/*    /mobile   200
+/m      /mobile   200
+/*      /index.html    200

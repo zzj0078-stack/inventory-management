@@ -397,8 +397,14 @@ const handleDelete = async (row) => {
     `用户「${row.full_name || row.username}」`,
     `登录名：${row.username}　角色：${row.role_label || row.role_name || '未分配'}`
   )
-  await deleteUser(row.id)
-  ElMessage.success('删除成功')
+  const res = await deleteUser(row.id)
+  if (res && res.disabled) {
+    // 该账号有历史单据/操作日志，后端改为「停用」而不是删除，避免破坏审计链。
+    // 用 warning 而不是 success，并展示后端给的具体原因。
+    ElMessage.warning({ message: res.message, duration: 8000, showClose: true })
+  } else {
+    ElMessage.success((res && res.message) || '删除成功')
+  }
   loadData()
 }
 

@@ -254,6 +254,134 @@ node cf/verify-upload.mjs https://inventory-b4k.pages.dev admin 密码
 
 ---
 
+## 移动端（业务员 / 仓库外出办公）
+
+桌面端是管理后台，手机上表格挤成一团。移动端是**独立的第二入口**，只做
+现场高频动作：查库存价格、开销售单、发货、收货、登记收款、看客户欠款。
+
+| 项 | 值 |
+|---|---|
+| 入口 | `frontend/mobile.html` → `/m/*` |
+| 路由 | `frontend/src/mobile/router.js`，全部挂在 `/m/` 下 |
+| 页面 | 工作台 / 库存价格 / 销售单 / 我的（4 个 Tab）+ 开销售单 / 销售单详情 / 采购收货 / 采购单详情 / 客户欠款 / 登记收款 / 出入库明细 |
+| 存储 | 登录态用同一套 `localStorage.token`，与桌面端不冲突 |
+
+### 为什么不复用桌面端的 API 层
+
+`src/api/modules.js` 依赖 `src/api/index.js`，而后者 import 了 Element Plus 和桌面端 router。
+移动端如果复用它，**会把 1.2 MB 的桌面组件库一起打进手机包**。
+
+所以移动端有自己的 `src/mobile/api.js`（只封装用到的 ~30 个接口）+ 自己的轻量
+toast / 底部确认弹层 / 移动优先 CSS。**桌面端一行代码都不用改**，零回归风险。
+
+实测包体：
+
+| | JS (gzip) | CSS (gzip) |
+|---|---|---|
+| 桌面端 | 412 KB | 48 KB |
+| **移动端** | **65 KB** | **3 KB** |
+
+（两个入口共享同一个 vue/vue-router/axios chunk，但移动端**不加载** `main-*.js`。）
+
+### PWA：添加到主屏幕
+
+| 文件 | 作用 |
+|---|---|
+| `public/mobile-manifest.json` | standalone 显示、`start_url: /m/`、3 个图标 |
+| `public/mobile-icon-{192,512}.png` | 由 `cf/make_mobile_icons.py` 用 Pillow 生成 |
+| `public/mobile-sw.js` | Service Worker |
+
+Service Worker 策略刻意保守，避免「改了却看到旧页面」这类最难查的问题：
+
+- **导航请求：网络优先**，只有断网才回退缓存的 shell
+- `/assets/*`（文件名带 hash、内容永不变）：缓存优先
+- `/api/*`、`/uploads/*`：完全不接管
+- 非 GET、跨域：不接管
+
+### ⚠️ 一个必须记住的坑：`_redirects` 要指向 `/mobile` 而不是 `/mobile.html`
+
+Cloudflare Pages 有 **clean URL** 行为：请求 `/mobile.html` 会被 **308** 重定向到 `/mobile`。
+如果 `_redirects` 写成 `/m/*  /mobile.html  200`，实际链路会变成：
+
+```
+/m/sales/5  →(改写)→  /mobile.html  →(308)→  /mobile
+```
+
+**路径被丢掉** —— 分享链接、收藏、下拉刷新全部回到首页。
+
+正确写法（本仓库已改）：
+
+```
+/m/*    /mobile   200
+/m      /mobile   200
+/*      /index.html    200
+```
+
+`/m` 要单独一条：`/m/*` 里的 `*` 至少匹配一个字符，`/m`（无斜杠）匹配不到，
+不补这条的话用户手输 `example.com/m` 会落到桌面端。
+
+### 移动端接口契约验证
+
+手机 UI 没法在命令行里点，但页面绑定的字段名如果和后端对不上，用户看到的就是空白。
+`cf/verify-mobile-api.mjs` 把每个页面读的字段逐个断言一遍，等于替 UI 做了契约核对：
+
+```bash
+node cf/verify-mobile-api.mjs http://127.0.0.1:8788
+node cf/verify-mobile-api.mjs https://inventory-b4k.pages.dev admin 密码
+```
+
+**它抓到的问题（都是真问题）：**
+
+| # | 问题 | 影响 |
+|---|---|---|
+| 1 | `/api/inventory` 不返回价格 | 移动端查库存看不到售价 → 已加 `sale_price`/`purchase_price`/`spec`/`unit`（超集） |
+| 2 | 出入库明细 `type` 是**精确**匹配 | 手机端传 `'transfer'` 前缀查不到任何数据 → 改为完整 type |
+| 3 | 采购单日期字段是 `purchase_date` | 写成 `order_date` 会导致列表日期显示空白 |
+| 4 | 出入库明细**不支持 `keyword`** | 搜索框是摆设 → 已给后端补上（桌面端也可用） |
+
+### 移动端开发期间顺带修掉的 3 个后端问题
+
+**① `DELETE /api/users/{id}` 会 500**
+
+用户被 8 张表引用（单据的 `created_by`/`approve_by` + `operation_logs.user_id`）。
+D1 **强制外键**，直接删就报 `FOREIGN KEY constraint failed`。
+Python 版跑在**默认关闭外键的 SQLite** 上，是静默留下孤儿引用 —— 一直没暴露。
+
+现在的行为：**无历史记录**才真删；**有历史记录改为停用**（`status=0`，登录返回 403
+「用户已被禁用」），保住审计链。桌面端会弹出 warning 说明原因。
+
+**② 数据自检的 `/fix` 把整个自检跑了两遍**
+
+`collectIssues` 原本要把整张表读进内存再比对（还要先加载 4 张主表的全部 id），
+数据一多单次就要 5 秒；`/fix` 跑两遍 ≈ 11 秒，直接把连接拖断。
+
+两处优化：
+
+- 外键检查改成 `LEFT JOIN ... IS NULL` **anti-join**，只返回问题行，且能走索引
+- **没东西可修时不再重扫**（`fixed.length ? await collectIssues() : issues`）
+
+实测 `/fix` 从 ~11s 降到 ~2s。
+
+**③ 冒烟测试里「审核」没有断言**
+
+`await req('PUT', .../approve)` 没有 `check(...)`，所以一旦它失败会被静默吞掉，
+后面几十个失败全都指向「发货」，把真正的根因埋掉。已补断言 —— 这次就是靠它
+定位到问题其实是**本地 dev 代理掉连接**。
+
+### 本地 `wrangler pages dev` 会偶发掉连接（已知环境问题）
+
+密集连续请求时，本地代理会报 `Network connection lost`，**请求根本没到达 worker**
+（服务端日志里没有对应的 info 行）。表现是某个没有断言的调用静默失败，
+进而引发一大片连锁失败。
+
+冒烟测试已内置**连接级失败重试**（3 次 + 退避），并在末尾单独报出重试次数，
+以免把「环境抖动」误读成「接口不稳定」。**判定依据是没有拿到任何 HTTP 状态** ——
+拿到 400/500 这类业务错误绝不重试。
+
+生产环境不存在这个问题（线上 343/343 一次通过）。
+
+---
+
 ## 存量数据迁移
 
 ```bash

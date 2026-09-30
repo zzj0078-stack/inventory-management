@@ -66,32 +66,35 @@ async function listLogs(ctx) {
 async function collectIssues(db) {
   const issues = []
 
-  const idSet = async (table) => new Set((await db.all(`SELECT id FROM ${table}`)).map((r) => r.id))
-
-  const supIds = await idSet('suppliers')
-  const cusIds = await idSet('customers')
-  const prodIds = await idSet('products')
-  const whIds = await idSet('warehouses')
-
-  const check = (table, rows, field, valid, label, fixable = false, action = null) => {
-    const groups = new Map()
-    for (const r of rows) {
-      const v = r[field]
-      if (v && !valid.has(v)) {
-        if (!groups.has(v)) groups.set(v, [])
-        groups.get(v).push(r.id)
-      }
-    }
-    for (const oid of [...groups.keys()].sort((a, b) => a - b)) {
-      const ids = groups.get(oid)
+  /**
+   * 用 anti-join 只查出「孤儿」记录。
+   *
+   * 之前的写法是把整张表读进内存再逐行比对（还要先加载 4 张主表的全部 id），
+   * 数据一多就非常慢 —— 自检跑到 5 秒以上，/fix 因为要跑两遍直接把连接拖断。
+   * 改成 LEFT JOIN ... IS NULL + GROUP BY 后，返回的只有问题行，且能走外键索引。
+   */
+  const checkRefs = async (table, field, refTable, label, fixable = false, action = null) => {
+    const rows = await db.all(
+      `SELECT t.${field} AS ref_id, COUNT(*) AS n, GROUP_CONCAT(t.id) AS ids
+         FROM ${table} t
+         LEFT JOIN ${refTable} r ON r.id = t.${field}
+        WHERE t.${field} IS NOT NULL AND r.id IS NULL
+        GROUP BY t.${field}
+        ORDER BY t.${field}`
+    )
+    for (const row of rows) {
+      const ids = String(row.ids || '')
+        .split(',')
+        .map((x) => Number.parseInt(x, 10))
+        .filter((x) => Number.isFinite(x))
       issues.push({
         level: 'error',
         table,
         field,
-        ref_id: oid,
+        ref_id: row.ref_id,
         row_ids: ids,
         message:
-          `${label} #${oid} 已不存在，${ids.length} 条记录引用它` +
+          `${label} #${row.ref_id} 已不存在，${row.n} 条记录引用它` +
           `（ID: ${ids.slice(0, 8).join(', ')}${ids.length > 8 ? '...' : ''}）`,
         fix: fixable ? '删除这些孤儿记录' : `该${table}记录的${field}需重新指定，或恢复对应主数据`,
         fixable,
@@ -101,44 +104,18 @@ async function collectIssues(db) {
   }
 
   // 单据引用已删除的往来单位 —— 不能自动删，涉及业务数据
-  check(
-    'purchase_orders',
-    await db.all('SELECT id, supplier_id FROM purchase_orders'),
-    'supplier_id',
-    supIds,
-    '供应商'
-  )
-  check(
-    'sales_orders',
-    await db.all('SELECT id, customer_id FROM sales_orders'),
-    'customer_id',
-    cusIds,
-    '客户'
-  )
-  check(
-    'sale_returns',
-    await db.all('SELECT id, customer_id FROM sale_returns'),
-    'customer_id',
-    cusIds,
-    '客户'
-  )
-  check(
-    'purchase_returns',
-    await db.all('SELECT id, supplier_id FROM purchase_returns'),
-    'supplier_id',
-    supIds,
-    '供应商'
-  )
+  await checkRefs('purchase_orders', 'supplier_id', 'suppliers', '供应商')
+  await checkRefs('sales_orders', 'customer_id', 'customers', '客户')
+  await checkRefs('sale_returns', 'customer_id', 'customers', '客户')
+  await checkRefs('purchase_returns', 'supplier_id', 'suppliers', '供应商')
 
   // 库存指向已删除的商品/仓库 —— 可自动清理
-  const invRows = await db.all('SELECT id, product_id, warehouse_id FROM inventory')
-  check('inventory', invRows, 'product_id', prodIds, '商品', true, 'delete_orphan_inventory')
-  check('inventory', invRows, 'warehouse_id', whIds, '仓库', true, 'delete_orphan_inventory')
+  await checkRefs('inventory', 'product_id', 'products', '商品', true, 'delete_orphan_inventory')
+  await checkRefs('inventory', 'warehouse_id', 'warehouses', '仓库', true, 'delete_orphan_inventory')
 
   // 库存流水是历史留痕，不自动删
-  const logRows = await db.all('SELECT id, product_id, warehouse_id FROM stock_logs')
-  check('stock_logs', logRows, 'product_id', prodIds, '商品')
-  check('stock_logs', logRows, 'warehouse_id', whIds, '仓库')
+  await checkRefs('stock_logs', 'product_id', 'products', '商品')
+  await checkRefs('stock_logs', 'warehouse_id', 'warehouses', '仓库')
 
   // 负库存
   const negRows = await db.all('SELECT id FROM inventory WHERE quantity < 0')
@@ -192,7 +169,8 @@ async function collectIssues(db) {
   }
 
   // 无仓库
-  if (whIds.size === 0) {
+  const warehouseCount = await db.count('SELECT COUNT(*) AS n FROM warehouses')
+  if (warehouseCount === 0) {
     issues.push({
       level: 'error',
       table: 'warehouses',
@@ -261,7 +239,9 @@ async function healthCheckFix(ctx) {
     await logOp(db, ctx.user, '数据自检', '自动修复', `${fixed.length} 项`, fixed.join('；').slice(0, 500))
   }
 
-  const remaining = await collectIssues(db)
+  // 什么都没修就不用重扫 —— 自检本身要遍历全库，跑两遍是纯粹的浪费，
+  // 之前正是因为跑两遍耗时才把 dev 代理连接拖断（生产上也白烧 CPU）。
+  const remaining = fixed.length ? await collectIssues(db) : issues
   const manual = remaining.filter((i) => !i.fixable)
 
   return json({

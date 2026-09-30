@@ -3,7 +3,7 @@
  * 对应 backend/app/api/extended.py 的 stock-logs / stock-transfers / stock-checks 段
  */
 
-import { bad, notFound, ok, json, paginated, paginationOf, intParam, boolParam } from '../lib/http.js'
+import { bad, notFound, ok, json, paginated, paginationOf, intParam, boolParam, likeArg } from '../lib/http.js'
 import { nowLocal, isoOf, dateStamp } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
 import { planStock } from '../lib/stock.js'
@@ -41,8 +41,24 @@ async function listStockLogs(ctx) {
   }
   const type = url.searchParams.get('type')
   if (type) {
+    // 精确匹配（不是前缀）：前端必须传完整的 type，如 transfer_in
     where.push('l.type = ?')
     params.push(type)
+  }
+
+  // 关键词：关联单号、备注、商品名称/编码
+  // （Python 版没有这个筛选；补上后移动端的搜索框才有意义，桌面端也可用）
+  // 商品用子查询而不是 JOIN —— count 查询没有 join products，写成 p.name 会报无此列。
+  const keyword = url.searchParams.get('keyword')
+  if (keyword) {
+    const k = likeArg(keyword)
+    where.push(
+      `(l.related_no LIKE ? ESCAPE '\\' OR l.remark LIKE ? ESCAPE '\\'
+        OR l.product_id IN (
+             SELECT id FROM products WHERE name LIKE ? ESCAPE '\\' OR sku LIKE ? ESCAPE '\\'
+           ))`
+    )
+    params.push(k, k, k, k)
   }
 
   const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : ''

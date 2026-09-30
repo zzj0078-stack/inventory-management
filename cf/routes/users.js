@@ -193,8 +193,22 @@ async function update(ctx) {
   return json(await buildUserResponse(db, fresh))
 }
 
+// 引用 users 表的 (表, 列) 组合，用于判断某用户是否留下过业务记录
+const USER_REFS = [
+  ['purchase_orders', 'created_by'],
+  ['purchase_orders', 'approve_by'],
+  ['purchase_returns', 'created_by'],
+  ['sales_orders', 'created_by'],
+  ['sales_orders', 'approve_by'],
+  ['sale_returns', 'created_by'],
+  ['payments', 'created_by'],
+  ['stock_transfers', 'created_by'],
+  ['stock_checks', 'created_by'],
+  ['operation_logs', 'user_id'],
+]
+
 async function remove(ctx) {
-  const { db, user, params } = ctx
+  const { db, user, params, env } = ctx
   const userId = Number(params.id)
 
   const target = await db.first('SELECT id, username FROM users WHERE id = ?', userId)
@@ -202,6 +216,34 @@ async function remove(ctx) {
 
   if (target.id === user.id) bad('不能删除自己的账号')
   if (target.username === 'admin') bad('内置管理员账号不可删除')
+
+  // 用户被 8 张表引用（单据的 created_by/approve_by、操作日志的 user_id）。
+  // D1 **强制外键**，直接 DELETE 会 500 —— Python 版跑在默认关闭外键的 SQLite 上，
+  // 是静默留下孤儿引用，问题一直没暴露。
+  let refCount = 0
+  for (const [table, col] of USER_REFS) {
+    refCount += await db.count(`SELECT COUNT(*) AS n FROM ${table} WHERE ${col} = ?`, userId)
+  }
+
+  if (refCount > 0) {
+    // 有历史记录：停用而不是删除，保住审计链（登录时会因 status=0 被拒）
+    await db.run('UPDATE users SET status = 0, updated_at = ? WHERE id = ?', nowLocal(env), userId)
+    await logOp(
+      db,
+      user,
+      '用户管理',
+      '停用用户',
+      target.username,
+      `该账号有 ${refCount} 条历史单据/日志，已改为停用`
+    )
+    return json({
+      disabled: true,
+      ref_count: refCount,
+      message:
+        `「${target.username}」有 ${refCount} 条历史单据与操作日志，直接删除会破坏审计记录，` +
+        `已改为**停用**（该账号无法再登录，历史数据完整保留）。`,
+    })
+  }
 
   await db.run('DELETE FROM users WHERE id = ?', userId)
   await logOp(db, user, '用户管理', '删除用户', target.username)

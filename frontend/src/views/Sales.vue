@@ -353,7 +353,7 @@
                 <template #prefix>¥</template>
               </el-input>
               <div class="field-hint">
-                价内税，自动从明细拆出（不含税金额 ¥{{ netAmount.toFixed(2) }}）
+                价内税（不含税金额 ¥{{ netAmount.toFixed(2) }}）
               </div>
             </el-form-item>
           </el-col>

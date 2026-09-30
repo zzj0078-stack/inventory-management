@@ -68,6 +68,42 @@ cf/migrate-data.sql
 cf/_sqlite_counts.txt
 
 # ============================================================
+#  数据导出与测试报告 —— 可能含真实业务数据，绝不提交
+# ============================================================
+# ⚠️ exported-data.json 里是**真实发票数据**：购销双方名称、统一社会信用代码、
+#    发票号码、开票日期、商品明细与金额。它一直躺在项目根目录且未被忽略，
+#    任何人执行 git add -A 就会把客户名单和税号推到 GitHub。
+exported-data.json
+
+# 各种验证脚本跑出来的报告/快照，常把接口返回的业务数据整段存下来
+*-report.json
+smoke-*.json
+interact-*.json
+delta-*.json
+cats-*.json
+chinese-check.*
+verify-text*
+meta-check.txt
+local-db-report.txt
+
+# 本地验证脚本与截图（浏览器调试、临时迁移脚本 —— 都不是项目代码）
+# 截图可能拍到真实业务数据，所以一并忽略。注意：**只是不提交，文件仍在原处**。
+cdp-*.js
+*-cats*.png
+topbar-*.png
+build-restore.js
+export-sqlite.js
+gen-*probe.js
+local-db-maintain.js
+migrate-data.js
+setup-user.js
+split-migrate.js
+verify-delta-server.js
+
+# ============================================================
 #  其它
 # ============================================================
 *.log
+
+# 移动端截图预览（本地验证产物）
+.mobile-preview/

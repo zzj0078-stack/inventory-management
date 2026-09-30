@@ -7,7 +7,7 @@ import traceback
 from .config import settings
 from .database import engine, Base
 from .api import SUB_ROUTERS
-from .core.automigrate import auto_migrate
+from .core.automigrate import auto_migrate, rebuild_table_relaxing_not_null
 from .core.router_utils import mount_all
 from .core.perm_matrix import PermissionMiddleware
 
@@ -20,6 +20,11 @@ if _added:
         print(f"          + {c}")
 else:
     print("[MIGRATE] 表结构与模型一致，无需补列")
+
+# 历史库：users.email 曾是 NOT NULL，邮箱改为选填后需去掉该约束
+_ok, _msg = rebuild_table_relaxing_not_null(engine, Base.metadata.tables["users"], "email")
+if _ok:
+    print(f"[MIGRATE] {_msg}")
 
 app = FastAPI(
     title=settings.PROJECT_NAME,

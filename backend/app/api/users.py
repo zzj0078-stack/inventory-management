@@ -14,6 +14,14 @@ from ..api.deps import get_current_user
 router = APIRouter()
 
 
+def _clean_email(email: Optional[str]) -> Optional[str]:
+    """邮箱选填：空白字符串归一为 None（否则多条空串会撞唯一索引）"""
+    if email is None:
+        return None
+    email = email.strip()
+    return email or None
+
+
 def _role_perm_count(db, role: Role) -> int:
     if not role:
         return 0
@@ -25,7 +33,7 @@ def _role_perm_count(db, role: Role) -> int:
 
 
 def _decorate(db, user: User) -> UserResponse:
-    d = UserResponse.from_orm(user)
+    d = UserResponse.model_validate(user)
     if user.role_id:
         role = db.query(Role).filter(Role.id == user.role_id).first()
         if role:
@@ -85,7 +93,9 @@ async def create_user(
 ):
     if db.query(User).filter(User.username == user_data.username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
-    if db.query(User).filter(User.email == user_data.email).first():
+
+    email = _clean_email(user_data.email)
+    if email and db.query(User).filter(User.email == email).first():
         raise HTTPException(status_code=400, detail="邮箱已被使用")
 
     if not user_data.role_id:
@@ -99,7 +109,7 @@ async def create_user(
 
     user = User(
         username=user_data.username,
-        email=user_data.email,
+        email=email,
         password_hash=get_password_hash(user_data.password),
         full_name=user_data.full_name,
         phone=user_data.phone,
@@ -137,15 +147,19 @@ async def update_user(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
 
-    data = user_data.dict(exclude_unset=True)
+    data = user_data.model_dump(exclude_unset=True)
 
     # 唯一性校验（排除自身）
     if data.get("username") and data["username"] != user.username:
         if db.query(User).filter(User.username == data["username"], User.id != user_id).first():
             raise HTTPException(status_code=400, detail="用户名已存在")
-    if data.get("email") and data["email"] != user.email:
-        if db.query(User).filter(User.email == data["email"], User.id != user_id).first():
-            raise HTTPException(status_code=400, detail="邮箱已被使用")
+    if "email" in data:
+        email = _clean_email(data.pop("email"))
+        if email and email != user.email:
+            if db.query(User).filter(User.email == email, User.id != user_id).first():
+                raise HTTPException(status_code=400, detail="邮箱已被使用")
+        # 显式写入：允许清空为 NULL（下面的通用循环会跳过 None）
+        user.email = email
 
     # 角色必须存在
     if "role_id" in data and data["role_id"]:

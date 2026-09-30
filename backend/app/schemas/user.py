@@ -5,7 +5,8 @@ from datetime import datetime
 
 class UserCreate(BaseModel):
     username: str
-    email: str
+    # 邮箱选填
+    email: Optional[str] = None
     password: str
     full_name: Optional[str] = None
     phone: Optional[str] = None
@@ -31,7 +32,8 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
-    email: str
+    # 邮箱选填
+    email: Optional[str] = None
     full_name: Optional[str]
     phone: Optional[str]
     role_id: Optional[int]

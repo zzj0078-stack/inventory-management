@@ -22,7 +22,8 @@ class User(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
-    email = Column(String(100), unique=True, nullable=False)
+    # 邮箱选填；留空存 NULL（不能用空串，否则多条空邮箱会撞唯一索引）
+    email = Column(String(100), unique=True, nullable=True)
     password_hash = Column(String(200), nullable=False)
     full_name = Column(String(50))
     phone = Column(String(20))

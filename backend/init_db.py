@@ -9,7 +9,7 @@ from app.models.purchase import PurchaseOrder
 from app.models.sales import SalesOrder
 from app.models.permission import Permission, role_permissions
 from app.core.security import get_password_hash
-from app.core.automigrate import auto_migrate
+from app.core.automigrate import auto_migrate, rebuild_table_relaxing_not_null
 from app.core.permissions import all_permissions, ROLE_TEMPLATES, role_permission_codes
 from app.config import BASE_DIR
 
@@ -59,6 +59,11 @@ def init_database():
     added_cols = auto_migrate(engine, Base)
     if added_cols:
         print("  补齐字段: " + ", ".join(added_cols))
+
+    # 历史库：users.email 曾是 NOT NULL，邮箱改为选填后需去掉该约束
+    ok, msg = rebuild_table_relaxing_not_null(engine, Base.metadata.tables["users"], "email")
+    if ok:
+        print(f"  {msg}")
 
     db = SessionLocal()
     try:

@@ -51,7 +51,9 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="email" label="邮箱" min-width="170" show-overflow-tooltip />
+        <el-table-column label="邮箱" min-width="170" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.email || '-' }}</template>
+        </el-table-column>
         <el-table-column prop="phone" label="手机" width="130">
           <template #default="{ row }">{{ row.phone || '-' }}</template>
         </el-table-column>
@@ -105,7 +107,7 @@
           <div class="form-hint">用户权限完全由角色决定，如需调整请到「角色权限」页面配置。</div>
         </el-form-item>
         <el-form-item label="邮箱" prop="email">
-          <el-input v-model="form.email" placeholder="用于登录与通知" />
+          <el-input v-model="form.email" placeholder="选填" clearable />
         </el-form-item>
         <el-form-item label="手机">
           <el-input v-model="form.phone" placeholder="选填" />
@@ -166,9 +168,19 @@ const rules = {
     passwordRule()
   ],
   full_name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  // 邮箱选填：为空放行，填了才校验格式
   email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '邮箱格式不正确', trigger: 'blur' }
+    {
+      validator: (rule, value, callback) => {
+        if (!value) {
+          callback()
+          return
+        }
+        const ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value).trim())
+        callback(ok ? undefined : new Error('邮箱格式不正确'))
+      },
+      trigger: 'blur'
+    }
   ],
   role_id: [{ required: true, message: '请选择角色，否则该用户无任何权限', trigger: 'change' }]
 }
@@ -251,7 +263,7 @@ const handleSubmit = async () => {
       const payload = {
         username: form.username,
         full_name: form.full_name,
-        email: form.email,
+        email: form.email ? String(form.email).trim() : null,
         phone: form.phone,
         role_id: form.role_id,
         status: form.status

@@ -7,6 +7,7 @@ from ..models.permission import Permission, role_permissions
 from ..schemas.user import UserCreate, UserUpdate, UserResponse
 from ..schemas.common import ResponseModel, PaginatedResponse
 from ..core.security import get_password_hash
+from ..core.password_policy import validate_password
 from ..core.oplog import log_op
 from ..api.deps import get_current_user
 
@@ -92,6 +93,10 @@ async def create_user(
     if not db.query(Role).filter(Role.id == user_data.role_id).first():
         raise HTTPException(status_code=400, detail="指定的角色不存在")
 
+    err = validate_password(user_data.password)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
     user = User(
         username=user_data.username,
         email=user_data.email,
@@ -156,6 +161,9 @@ async def update_user(
 
     password = data.pop("password", None)
     if password:
+        err = validate_password(password)
+        if err:
+            raise HTTPException(status_code=400, detail=err)
         user.password_hash = get_password_hash(password)
 
     for k, v in data.items():

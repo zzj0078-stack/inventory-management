@@ -88,7 +88,7 @@
           <el-input v-model="form.username" placeholder="英文或拼音，用于登录" :disabled="!!editId" />
         </el-form-item>
         <el-form-item v-if="!editId" label="密码" prop="password">
-          <el-input v-model="form.password" type="password" placeholder="至少 4 位" show-password />
+          <el-input v-model="form.password" type="password" placeholder="至少 8 位，含特殊字符" show-password />
         </el-form-item>
         <el-form-item label="姓名" prop="full_name">
           <el-input v-model="form.full_name" placeholder="真实姓名" />
@@ -113,6 +113,14 @@
         <el-form-item label="状态">
           <el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="禁用" />
         </el-form-item>
+        <el-alert
+          v-if="!editId"
+          type="info"
+          :closable="false"
+          show-icon
+          :title="PASSWORD_RULES_TEXT"
+          style="margin-left:100px"
+        />
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -127,6 +135,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { getUsers, createUser, updateUser, deleteUser, getRoles, resetPassword } from '../api/modules'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { confirmDelete } from '../utils/confirm'
+import { passwordRule, validatePassword, PASSWORD_RULES_TEXT } from '../utils/password'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -154,7 +163,7 @@ const rules = {
   username: [{ required: true, message: '请输入登录名', trigger: 'blur' }],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 4, message: '密码至少 4 位', trigger: 'blur' }
+    passwordRule()
   ],
   full_name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   email: [
@@ -277,15 +286,22 @@ const handleResetPwd = async (row) => {
       {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
-        inputValue: '123456',
-        inputPattern: /^.{4,}$/,
-        inputErrorMessage: '密码至少 4 位'
+        inputValue: '',
+        inputType: 'password',
+        inputPlaceholder: '至少 8 位，必须含特殊字符（如 ! @ # $ % ^ & *）'
       }
     )
+
+    const err = validatePassword(value)
+    if (err) {
+      ElMessage.error(err)
+      return
+    }
+
     await resetPassword({ user_id: row.id, new_password: value })
-    ElMessage.success(`密码已重置为：${value}`)
+    ElMessage.success(`用户「${row.username}」的密码已重置`)
   } catch (e) {
-    // 取消或失败
+    // 取消或失败（接口错误已由拦截器提示）
   }
 }
 

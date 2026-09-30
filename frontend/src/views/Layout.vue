@@ -94,11 +94,12 @@
           <el-input v-model="pwdForm.old_password" type="password" show-password />
         </el-form-item>
         <el-form-item label="新密码" prop="new_password">
-          <el-input v-model="pwdForm.new_password" type="password" show-password />
+          <el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少 8 位，含特殊字符" />
         </el-form-item>
         <el-form-item label="确认密码" prop="confirm_password">
           <el-input v-model="pwdForm.confirm_password" type="password" show-password />
         </el-form-item>
+        <el-alert type="info" :closable="false" show-icon :title="PASSWORD_RULES_TEXT" style="margin-left:100px" />
       </el-form>
       <template #footer>
         <el-button @click="pwdDialogVisible = false">取消</el-button>
@@ -113,6 +114,7 @@ import { ref, reactive, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '../store/user'
 import { changePassword } from '../api/modules'
+import { passwordRule, PASSWORD_RULES_TEXT } from '../utils/password'
 import { ElMessage } from 'element-plus'
 
 const route = useRoute()
@@ -135,7 +137,7 @@ const pwdRules = {
   old_password: [{ required: true, message: '请输入原密码', trigger: 'blur' }],
   new_password: [
     { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 4, message: '密码至少4位', trigger: 'blur' }
+    passwordRule()
   ],
   confirm_password: [
     { required: true, message: '请确认密码', trigger: 'blur' },

@@ -7,6 +7,7 @@ from ..models.user import User, Role
 from ..models.permission import Permission, role_permissions
 from ..schemas.common import ResponseModel
 from ..core.security import verify_password, get_password_hash
+from ..core.password_policy import validate_password, RULES_TEXT
 from ..api.deps import get_current_user
 from ..core.oplog import log_op
 
@@ -19,8 +20,9 @@ class ChangePasswordRequest(BaseModel):
 
 
 class ResetPasswordRequest(BaseModel):
+    # 默认值必须满足密码策略（至少 8 位 + 特殊字符）
     user_id: int
-    new_password: str = "123456"
+    new_password: str = "Aa123456!"
 
 
 class RoleCreate(BaseModel):
@@ -59,7 +61,13 @@ async def change_password(
 ):
     if not verify_password(data.old_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="原密码错误")
-    
+
+    err = validate_password(data.new_password)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    if data.new_password == data.old_password:
+        raise HTTPException(status_code=400, detail="新密码不能与原密码相同")
+
     current_user.password_hash = get_password_hash(data.new_password)
     log_op(db, current_user, "认证", "修改密码", current_user.username)
     db.commit()
@@ -76,11 +84,21 @@ async def reset_password(
     user = db.query(User).filter(User.id == data.user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
-    
+
+    err = validate_password(data.new_password)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+
     user.password_hash = get_password_hash(data.new_password)
     log_op(db, current_user, "用户管理", "重置密码", user.username)
     db.commit()
     return ResponseModel(message=f"密码已重置为: {data.new_password}")
+
+
+# 密码策略提示（前端用来展示规则文案，避免两端各写一份）
+@router.get("/password-rules")
+async def password_rules():
+    return {"rules": RULES_TEXT, "min_length": 8, "max_length": 64}
 
 
 # 获取当前用户权限

@@ -208,11 +208,37 @@ public/
 ## 权限模型
 
 - `roles` ↔ `permissions` 多对多（`role_permissions`）
-- 权限码格式：`模块:动作`，如 `purchase:approve`
-- 前端菜单按 `hasPermission(code)` 显隐；`role_id === 1`（admin）全放行
-- 后端接口未强制校验（内部系统，前端控制为主）
+- 权限码格式：`模块:动作`，如 `purchase:approve`，共 84 项，分 20 个模块
+- **后端是真正的边界**：`app/core/perm_matrix.py` 集中定义 90+ 条
+  `(HTTP 方法, 路径正则, 所需权限)` 规则，由纯 ASGI 的 `PermissionMiddleware` 拦截；
+  未命中规则的接口默认「登录即可访问」，`PUBLIC` 集合内的接口免登录
+- 前端 `v-permission` 指令 / `router` 守卫只负责菜单与按钮的**显隐**
+- 权限清单见 `app/core/permissions.py` 的 `PERMISSION_GROUPS`
 
-权限清单见 `backend/init_db.py` 的 `ALL_PERMISSIONS`。
+### 密码策略
+
+**唯一事实来源：`backend/app/core/password_policy.py`**（前端 `frontend/src/utils/password.js`
+是同一套规则的镜像，仅用于即时提示）。
+
+| 规则 | 说明 |
+|------|------|
+| 长度 | 8 - 64 位 |
+| 特殊字符 | **至少 1 个**。ASCII 全部可见标点（`!` `@` `#` `$` `%` `^` `&` `*` `(` `)` `-` `_` `=` `+` `[` `]` `{` `}` `;` `:` `'` `"` `,` `.` `<` `>` `/` `?` `\` `|` `~` 反引号）以及常见全角标点（`！` `？` `。` `，` `、` `；` `：` `“` `”` `（` `）` `《` `》` `·` `￥` 等） |
+| 空格 | 不允许（含 Tab） |
+
+生效位置（后端全部强制，前端同步提示）：
+
+| 接口 | 位置 |
+|------|------|
+| `POST /api/users` | 新增用户 |
+| `PUT /api/users/{id}` | 编辑用户改密码 |
+| `POST /api/auth/change-password` | 用户自助改密（另禁止与旧密码相同） |
+| `POST /api/auth/reset-password` | 管理员重置（默认值 `Aa123456!`） |
+
+管理员重置密码的默认值已从 `123456` 改为 `Aa123456!`（符合策略）。
+**历史弱密码不受影响，仍可正常登录** —— 策略只在写入新密码时校验。
+
+规则文案可通过 `GET /api/auth/password-rules`（免登录）取回，避免前后端各写一份。
 
 ---
 

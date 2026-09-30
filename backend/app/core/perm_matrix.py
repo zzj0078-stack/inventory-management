@@ -1,4 +1,4 @@
-"""集中式接口权限矩阵 + 校验中间件
+r"""集中式接口权限矩阵 + 校验中间件
 
 为什么用中间件而不是逐个 Depends：
   - 90+ 接口，逐个加依赖容易漏、改动面大
@@ -171,6 +171,7 @@ EXPORT_PERM = {
 # 无需登录的路径
 PUBLIC = {
     "/api/auth/login",
+    "/api/auth/password-rules",
     "/api/health",
 }
 

@@ -13,6 +13,7 @@ import { bad, notFound, ok, json, paginated, paginationOf, intParam, likeArg } f
 import { nowLocal, isoOf, dateOf, dateStamp } from './time.js'
 import { logOp } from './oplog.js'
 import { planStock, defaultWarehouseId } from './stock.js'
+import { allInChunks } from './db.js'
 
 /** 生成单号：前缀 + yyyymmdd + 4 位序号（与 extended.py 的 gen_no 一致） */
 async function genNo(db, table, field, prefix, env) {
@@ -85,68 +86,42 @@ export function makeReturnRoutes(cfg) {
       offset
     )
 
-    // 金额汇总（不受分页影响），active 口径与财务管理一致
-    const sumOf = async (states) => {
-      const marks = states.map(() => '?').join(',')
-      return Number(
-        (await db.scalar(
-          `SELECT COALESCE(SUM(total_amount), 0) AS v FROM ${R} WHERE status IN (${marks})`,
-          ...states
-        )) || 0
-      )
-    }
+    // 金额汇总（不受分页影响），active 口径与财务管理一致。
+    // 原来 4 个状态各查一次 + count 一次 = 5 条查询；合成一条条件聚合即可，
+    // 少 4 次查询在「每次调用查询次数」受限时很值钱。
+    const s = (await db.first(
+      `SELECT
+         COALESCE(SUM(CASE WHEN status IN (0,1,2,3) THEN total_amount ELSE 0 END), 0) AS all_amt,
+         COALESCE(SUM(CASE WHEN status IN (1,2)   THEN total_amount ELSE 0 END), 0) AS active_amt,
+         COALESCE(SUM(CASE WHEN status = 0        THEN total_amount ELSE 0 END), 0) AS draft_amt,
+         COALESCE(SUM(CASE WHEN status = 3        THEN total_amount ELSE 0 END), 0) AS void_amt,
+         COUNT(*) AS cnt
+       FROM ${R}`
+    )) || {}
 
     const summary = {
-      all: await sumOf([0, 1, 2, 3]),
-      active: await sumOf([1, 2]),
-      draft: await sumOf([0]),
-      void: await sumOf([3]),
-      count: await db.count(`SELECT COUNT(*) AS n FROM ${R}`),
+      all: Number(s.all_amt || 0),
+      active: Number(s.active_amt || 0),
+      draft: Number(s.draft_amt || 0),
+      void: Number(s.void_amt || 0),
+      count: Number(s.cnt || 0),
     }
 
-    const items = []
-    for (const r of rows) items.push(await returnOut(ctx, cfg, r))
+    // 整页一次性转换（原来逐行 returnOut 是 N+1：每行 4 条查询）
+    const items = await returnOutMany(ctx, cfg, rows)
 
     return paginated(total, page, pageSize, items, summary)
   }
 
-  /** 把退货单行转成响应（含往来单位名、原单号、明细） */
-  async function returnOut(ctx, cfg, r) {
-    const { db } = ctx
+  /** 纯转换：所有关联数据由调用方备好（列表路径直接用 JOIN 出来的字段） */
+  function shapeReturn(cfg, r, { partner, sourceNo, rawItems, prodMap }) {
     const p = cfg.party
 
-    const partner = r[p.fk]
-      ? await db.first(`SELECT id, name, contact, phone FROM ${p.table} WHERE id = ?`, r[p.fk])
-      : null
-
-    let sourceNo = ''
-    if (r[cfg.source.fk]) {
-      const o = await db.first(`SELECT order_no FROM ${O} WHERE id = ?`, r[cfg.source.fk])
-      sourceNo = o ? o.order_no : `⚠ ${cfg.source.doc}#${r[cfg.source.fk]} 已删除`
-    }
-
-    const rawItems = await db.all(
-      `SELECT * FROM ${RI} WHERE return_id = ? ORDER BY id`,
-      r.id
-    )
-
-    const pids = [...new Set(rawItems.map((i) => i.product_id).filter(Boolean))]
-    const prodMap = new Map()
-    if (pids.length) {
-      const ph = pids.map(() => '?').join(',')
-      for (const row of await db.all(
-        `SELECT id, name, spec, unit FROM products WHERE id IN (${ph})`,
-        ...pids
-      )) {
-        prodMap.set(row.id, row)
-      }
-    }
-
-    // 列表查询已 JOIN 出 partner_name / source_order_no，详情路径下再查一次
+    // 列表查询已经 JOIN 出 partner_name / source_order_no，有就直接用
     const partnerName =
       r.partner_name !== undefined ? r.partner_name : partner ? partner.name : ''
     const resolvedSourceNo =
-      r.source_order_no !== undefined ? r.source_order_no : sourceNo
+      r.source_order_no !== undefined ? r.source_order_no : sourceNo || ''
 
     return {
       id: r.id,
@@ -161,11 +136,13 @@ export function makeReturnRoutes(cfg) {
       source_order_no: resolvedSourceNo,
       [p.fk]: r[p.fk] ?? null,
       [`${p.respPrefix}_name`]: partnerName || '',
-      [`${p.respPrefix}_contact`]: partner ? partner.contact ?? '' : '',
-      [`${p.respPrefix}_phone`]: partner ? partner.phone ?? '' : '',
+      [`${p.respPrefix}_contact`]: partner
+        ? partner.contact ?? ''
+        : r.partner_contact ?? '',
+      [`${p.respPrefix}_phone`]: partner ? partner.phone ?? '' : r.partner_phone ?? '',
       // 明细：Python 版只回 product_id/quantity/price/amount，
       // 这里多带商品名/规格/单位（超集，不破坏调用方）
-      items: rawItems.map((i) => {
+      items: (rawItems || []).map((i) => {
         const prod = prodMap.get(i.product_id)
         return {
           product_id: i.product_id,
@@ -178,6 +155,102 @@ export function makeReturnRoutes(cfg) {
         }
       }),
     }
+  }
+
+  /** 批量取商品信息 */
+  async function loadReturnProducts(db, items) {
+    const pids = [...new Set(items.map((i) => i.product_id).filter(Boolean))]
+    const prodMap = new Map()
+    if (!pids.length) return prodMap
+    // 分块：D1 单条语句最多 100 个绑定参数（退货明细商品种类多时会超）
+    for (const row of await allInChunks(
+      db,
+      pids,
+      (ph) => `SELECT id, name, spec, unit FROM products WHERE id IN (${ph})`
+    )) {
+      prodMap.set(row.id, row)
+    }
+    return prodMap
+  }
+
+  /** 单张退货单（详情用）：一张单最多 4 条查询，可以接受 */
+  async function returnOut(ctx, cfg, r) {
+    const { db } = ctx
+    const p = cfg.party
+
+    // 列表路径带了 JOIN 字段时就不必再查（原来无条件查，列表每行白跑 2 条）
+    const partner =
+      r.partner_name === undefined && r[p.fk]
+        ? await db.first(`SELECT id, name, contact, phone FROM ${p.table} WHERE id = ?`, r[p.fk])
+        : null
+
+    let sourceNo = ''
+    if (r.source_order_no === undefined && r[cfg.source.fk]) {
+      const o = await db.first(`SELECT order_no FROM ${O} WHERE id = ?`, r[cfg.source.fk])
+      sourceNo = o ? o.order_no : `⚠ ${cfg.source.doc}#${r[cfg.source.fk]} 已删除`
+    }
+
+    const rawItems = await db.all(`SELECT * FROM ${RI} WHERE return_id = ? ORDER BY id`, r.id)
+    const prodMap = await loadReturnProducts(db, rawItems)
+
+    return shapeReturn(cfg, r, { partner, sourceNo, rawItems, prodMap })
+  }
+
+  /**
+   * 整页退货单（列表用）—— 每种关联只查一次，查询数与页大小无关。
+   * 原来逐行 returnOut：每行 4 条查询，一页 20 行 = 80 条，
+   * 会撞 D1「每次 Worker 调用查询次数」上限（免费 50）。
+   */
+  async function returnOutMany(ctx, cfg, rows) {
+    if (!rows.length) return []
+    const { db } = ctx
+    const p = cfg.party
+    const rids = rows.map((r) => r.id)
+
+    const allItems = await allInChunks(
+      db,
+      rids,
+      (ph) => `SELECT * FROM ${RI} WHERE return_id IN (${ph}) ORDER BY id`
+    )
+    const itemsByReturn = new Map()
+    for (const it of allItems) {
+      if (!itemsByReturn.has(it.return_id)) itemsByReturn.set(it.return_id, [])
+      itemsByReturn.get(it.return_id).push(it)
+    }
+
+    const prodMap = await loadReturnProducts(db, allItems)
+
+    const partnerMap = new Map()
+    for (const x of await allInChunks(
+      db,
+      [...new Set(rows.map((r) => r[p.fk]).filter(Boolean))],
+      (ph) => `SELECT id, name, contact, phone FROM ${p.table} WHERE id IN (${ph})`
+    )) {
+      partnerMap.set(x.id, x)
+    }
+
+    const srcMap = new Map()
+    for (const x of await allInChunks(
+      db,
+      [...new Set(rows.map((r) => r[cfg.source.fk]).filter(Boolean))],
+      (ph) => `SELECT id, order_no FROM ${O} WHERE id IN (${ph})`
+    )) {
+      srcMap.set(x.id, x.order_no)
+    }
+
+    return rows.map((r) => {
+      const sid = r[cfg.source.fk]
+      return shapeReturn(cfg, r, {
+        partner: partnerMap.get(r[p.fk]) || null,
+        sourceNo: sid
+          ? srcMap.has(sid)
+            ? srcMap.get(sid)
+            : `⚠ ${cfg.source.doc}#${sid} 已删除`
+          : '',
+        rawItems: itemsByReturn.get(r.id) || [],
+        prodMap,
+      })
+    })
   }
 
   // ---------------- 详情（前端编辑/打印用）----------------
@@ -257,10 +330,11 @@ export function makeReturnRoutes(cfg) {
     const pids = [...new Set(orderItems.map((i) => i.product_id).filter(Boolean))]
     const prodMap = new Map()
     if (pids.length) {
-      const ph = pids.map(() => '?').join(',')
-      for (const p of await db.all(
-        `SELECT id, name, spec, unit FROM products WHERE id IN (${ph})`,
-        ...pids
+      // 分块：原单明细超过 100 种商品时，不分块会撞 D1 的 100 参数上限
+      for (const p of await allInChunks(
+        db,
+        pids,
+        (ph) => `SELECT id, name, spec, unit FROM products WHERE id IN (${ph})`
       )) {
         prodMap.set(p.id, p)
       }

@@ -64,6 +64,8 @@ function corsHeaders() {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, Accept',
+    // 让跨域调用方也能读到 D1 用量头（同源不需要，这里保持完整）
+    'Access-Control-Expose-Headers': 'X-D1-Queries, X-D1-Rows-Read, X-D1-Rows-Written',
     'Access-Control-Max-Age': '86400',
   }
 }
@@ -209,7 +211,35 @@ async function handle(context) {
     ip: clientIp(request),
   }
 
-  return route.handler(ctx)
+  const res = await route.handler(ctx)
+  return withDbUsage(res, db)
+}
+
+/**
+ * 把本请求的 D1 用量挂到响应头上。
+ *
+ * 为什么值得暴露：D1 的两个限制都是「按量」的 ——
+ *   每次调用查询次数（免费 50 / 付费 1000）、每天写入行数（免费 10 万）
+ * 有了这两个头，「这个接口贵不贵」就是可测的，不用猜。
+ *   X-D1-Queries       本请求执行的 D1 查询条数
+ *   X-D1-Rows-Read     读取行数
+ *   X-D1-Rows-Written  写入行数（含索引带来的额外行）
+ */
+function withDbUsage(res, db) {
+  try {
+    const u = db.usage || { queries: 0, read: 0, written: 0 }
+    const headers = new Headers(res.headers)
+    headers.set('X-D1-Queries', String(u.queries))
+    headers.set('X-D1-Rows-Read', String(u.read))
+    headers.set('X-D1-Rows-Written', String(u.written))
+    return new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    })
+  } catch {
+    return res
+  }
 }
 
 export async function onRequest(context) {

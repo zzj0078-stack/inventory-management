@@ -6,6 +6,7 @@
 import { bad, notFound, ok, json, paginated, paginationOf, likeArg } from '../lib/http.js'
 import { nowLocal, isoOf } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
+import { chunk } from '../lib/db.js'
 
 // ==================== 操作日志 ====================
 
@@ -207,9 +208,14 @@ async function healthCheckFix(ctx) {
     if (action === 'delete_orphan_inventory') {
       const ids = it.row_ids || []
       if (!ids.length) continue
-      const ph = ids.map(() => '?').join(',')
-      const res = await db.run(`DELETE FROM inventory WHERE id IN (${ph})`, ...ids)
-      const n = res && res.meta ? res.meta.changes : ids.length
+      // 分块 DELETE：孤儿可能成百上千条，不分块会撞 D1 的 100 参数上限，
+      // 结果就是「一键修复」在真正需要修的时候反而失败。
+      let n = 0
+      for (const part of chunk(ids)) {
+        const ph = part.map(() => '?').join(',')
+        const res = await db.run(`DELETE FROM inventory WHERE id IN (${ph})`, ...part)
+        n += res && res.meta ? res.meta.changes : part.length
+      }
       fixed.push(`删除孤儿库存 ${n} 条（${String(it.message).split('，')[0]}）`)
     } else if (action === 'recalc_order_amount') {
       const oid = (it.row_ids || [])[0]

@@ -12,6 +12,7 @@
 import { bad, notFound, ok, json, paginated, paginationOf, intParam } from '../lib/http.js'
 import { nowLocal, isoOf, todayLocal, currentPeriod, dateStamp } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
+import { allInChunks } from '../lib/db.js'
 
 /** 生成单号：前缀 + yyyymmdd + 4 位序号 */
 async function genNo(db, prefix, env) {
@@ -164,17 +165,21 @@ async function partnerNameMap(db, payments) {
   const supIds = [...new Set(payments.filter((p) => p.partner_type !== 'customer').map((p) => p.partner_id).filter(Boolean))]
 
   const map = new Map()
-  if (custIds.length) {
-    const ph = custIds.map(() => '?').join(',')
-    for (const r of await db.all(`SELECT id, name FROM customers WHERE id IN (${ph})`, ...custIds)) {
-      map.set(`customer:${r.id}`, r.name)
-    }
+  // 分块：一页最多 100 条收付款，涉及的不同客户/供应商可能超过 100 个，
+  // 不分块会撞 D1 的「每查询最多 100 个绑定参数」
+  for (const r of await allInChunks(
+    db,
+    custIds,
+    (ph) => `SELECT id, name FROM customers WHERE id IN (${ph})`
+  )) {
+    map.set(`customer:${r.id}`, r.name)
   }
-  if (supIds.length) {
-    const ph = supIds.map(() => '?').join(',')
-    for (const r of await db.all(`SELECT id, name FROM suppliers WHERE id IN (${ph})`, ...supIds)) {
-      map.set(`supplier:${r.id}`, r.name)
-    }
+  for (const r of await allInChunks(
+    db,
+    supIds,
+    (ph) => `SELECT id, name FROM suppliers WHERE id IN (${ph})`
+  )) {
+    map.set(`supplier:${r.id}`, r.name)
   }
   return map
 }

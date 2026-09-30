@@ -7,6 +7,7 @@ import { bad, notFound, ok, json, paginated, paginationOf, intParam, boolParam, 
 import { nowLocal, isoOf, dateStamp } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
 import { planStock } from '../lib/stock.js'
+import { allInChunks, multiRowInsert } from '../lib/db.js'
 
 /** 生成单号：前缀 + yyyymmdd + 4 位序号 */
 async function genNo(db, table, field, prefix, env) {
@@ -131,18 +132,33 @@ async function initStockLogs(ctx) {
   const statements = []
   if (overwrite) statements.push(db.raw.prepare('DELETE FROM stock_logs'))
 
-  for (const r of rows) {
-    statements.push(
-      db.raw
-        .prepare(
-          `INSERT INTO stock_logs
-             (product_id, warehouse_id, type, quantity, before_quantity, after_quantity,
-              related_type, related_id, related_no, remark, created_at)
-           VALUES (?, ?, 'init', ?, 0, ?, 'init', NULL, '', '期初库存', ?)`
-        )
-        .bind(r.product_id, r.warehouse_id, r.quantity, r.quantity, now)
+  // 多行 INSERT：期初要按当前库存逐条建流水，500 个库存行 = 500 条语句，
+  // 会直接撞上 D1「每次调用查询次数」上限（免费 50）。
+  // 11 列 → 每语句 9 行，500 行从 500 条语句降到 56 条。
+  const logRows = rows.map((r) => [
+    r.product_id,
+    r.warehouse_id,
+    'init',
+    r.quantity,
+    0,
+    r.quantity,
+    'init',
+    null,
+    '',
+    '期初库存',
+    now,
+  ])
+  statements.push(
+    ...multiRowInsert(
+      db,
+      'stock_logs',
+      [
+        'product_id', 'warehouse_id', 'type', 'quantity', 'before_quantity',
+        'after_quantity', 'related_type', 'related_id', 'related_no', 'remark', 'created_at',
+      ],
+      logRows
     )
-  }
+  )
 
   if (statements.length) await db.batch(statements)
 
@@ -157,15 +173,16 @@ const TRANSFER_STATUS = { 0: '待审核', 2: '已完成', 3: '已作废' }
 async function loadTransferItems(db, transferIds) {
   if (!transferIds.length) return new Map()
 
-  const ph = transferIds.map(() => '?').join(',')
-  const rows = await db.all(
-    `SELECT ti.transfer_id, ti.product_id, ti.quantity,
-            p.name AS product_name, p.spec, p.unit
-       FROM stock_transfer_items ti
-       LEFT JOIN products p ON p.id = ti.product_id
-      WHERE ti.transfer_id IN (${ph})
-      ORDER BY ti.id`,
-    ...transferIds
+  // 分块：一页最多 100 张调拨单，正好卡在 D1「每查询最多 100 个绑定参数」边缘
+  const rows = await allInChunks(
+    db,
+    transferIds,
+    (ph) => `SELECT ti.transfer_id, ti.product_id, ti.quantity,
+                    p.name AS product_name, p.spec, p.unit
+               FROM stock_transfer_items ti
+               LEFT JOIN products p ON p.id = ti.product_id
+              WHERE ti.transfer_id IN (${ph})
+              ORDER BY ti.id`
   )
 
   const map = new Map()
@@ -367,15 +384,16 @@ const CHECK_STATUS = { 0: '待审核', 1: '已调账', 2: '已作废' }
 async function loadCheckItems(db, checkIds) {
   if (!checkIds.length) return new Map()
 
-  const ph = checkIds.map(() => '?').join(',')
-  const rows = await db.all(
-    `SELECT ci.check_id, ci.product_id, ci.system_quantity, ci.actual_quantity, ci.diff,
-            p.name AS product_name, p.spec, p.unit
-       FROM stock_check_items ci
-       LEFT JOIN products p ON p.id = ci.product_id
-      WHERE ci.check_id IN (${ph})
-      ORDER BY ci.id`,
-    ...checkIds
+  // 分块：一页最多 100 张盘点单，正好卡在 D1 的 100 参数上限边缘
+  const rows = await allInChunks(
+    db,
+    checkIds,
+    (ph) => `SELECT ci.check_id, ci.product_id, ci.system_quantity, ci.actual_quantity, ci.diff,
+                    p.name AS product_name, p.spec, p.unit
+               FROM stock_check_items ci
+               LEFT JOIN products p ON p.id = ci.product_id
+              WHERE ci.check_id IN (${ph})
+              ORDER BY ci.id`
   )
 
   const map = new Map()
@@ -494,18 +512,20 @@ async function createCheck(ctx) {
   )
 
   try {
+    // 多行 INSERT：盘点底稿按仓库全部商品生成，500 个商品 = 500 条语句，
+    // 会撞 D1 的「每次调用查询次数」上限。6 列 → 每语句 16 行。
+    const checkRows = rawItems.map((it) => {
+      const sysQty = Number.parseInt(it.system_quantity ?? 0, 10) || 0
+      const actQty = Number.parseInt(it.actual_quantity ?? sysQty, 10) || 0
+      return [id, Number(it.product_id), sysQty, actQty, actQty - sysQty, now]
+    })
     await db.batch(
-      rawItems.map((it) => {
-        const sysQty = Number.parseInt(it.system_quantity ?? 0, 10) || 0
-        const actQty = Number.parseInt(it.actual_quantity ?? sysQty, 10) || 0
-        return db.raw
-          .prepare(
-            `INSERT INTO stock_check_items
-               (check_id, product_id, system_quantity, actual_quantity, diff, created_at)
-             VALUES (?, ?, ?, ?, ?, ?)`
-          )
-          .bind(id, Number(it.product_id), sysQty, actQty, actQty - sysQty, now)
-      })
+      multiRowInsert(
+        db,
+        'stock_check_items',
+        ['check_id', 'product_id', 'system_quantity', 'actual_quantity', 'diff', 'created_at'],
+        checkRows
+      )
     )
   } catch (e) {
     await db.batch([

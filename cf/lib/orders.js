@@ -13,6 +13,7 @@ import { bad, notFound, ok, json, paginated, paginationOf, intParam, likeArg } f
 import { nowLocal, dateOf, isoOf, dateStamp, endOfDayBound } from './time.js'
 import { logOp } from './oplog.js'
 import { planStock } from './stock.js'
+import { allInChunks, multiRowInsert } from './db.js'
 
 // ---------------- 价内税 ----------------
 
@@ -73,20 +74,26 @@ function numOrNull(v) {
 
 // ---------------- 响应构造 ----------------
 
-async function buildItems(ctx, cfg, items) {
-  const { db } = ctx
+/** 一次性把商品信息取成 Map（分块，规避 D1 的 100 参数上限） */
+async function loadProducts(db, items) {
   const pids = [...new Set(items.map((i) => i.product_id).filter(Boolean))]
   const prodMap = new Map()
-
-  if (pids.length) {
-    const ph = pids.map(() => '?').join(',')
-    const prods = await db.all(
-      `SELECT id, name, spec, unit, sku FROM products WHERE id IN (${ph})`,
-      ...pids
-    )
-    for (const p of prods) prodMap.set(p.id, p)
+  if (!pids.length) return prodMap
+  // 必须分块：D1 单条语句最多 100 个绑定参数。
+  // 一张明细超过 100 行的销售单（或采购单）走这里，不分块会直接
+  // 报 too many SQL variables，导致**详情页打不开**（150 行实测 500）。
+  for (const p of await allInChunks(
+    db,
+    pids,
+    (ph) => `SELECT id, name, spec, unit, sku FROM products WHERE id IN (${ph})`
+  )) {
+    prodMap.set(p.id, p)
   }
+  return prodMap
+}
 
+/** 明细行 → 响应形状（纯函数，prodMap 由调用方备好） */
+function shapeItems(cfg, items, prodMap) {
   return items.map((i) => {
     const p = prodMap.get(i.product_id)
     const done = Number(i[cfg.qtyField] || 0)
@@ -110,34 +117,23 @@ async function buildItems(ctx, cfg, items) {
   })
 }
 
-async function decorate(ctx, cfg, order) {
-  const { db } = ctx
+/** 列表里的「商品名称摘要」：1 项直接显示，多项显示「首个 等N项」 */
+function summarize(labels) {
+  if (!labels || !labels.length) return ''
+  if (labels.length === 1) return labels[0]
+  return `${labels[0]} 等${labels.length}项`
+}
 
-  const items = await db.all(
-    `SELECT * FROM ${cfg.table.item} WHERE order_id = ? ORDER BY id`,
-    order.id
-  )
-
-  const party = order[cfg.party.fk]
-    ? await db.first(
-        `SELECT id, name, contact, phone FROM ${cfg.party.table} WHERE id = ?`,
-        order[cfg.party.fk]
-      )
-    : null
-
-  const warehouse = order.warehouse_id
-    ? await db.first('SELECT id, name FROM warehouses WHERE id = ?', order.warehouse_id)
-    : null
-
+/** 单据 → 响应形状（纯函数，关联数据由调用方备好） */
+function shapeOrder(cfg, order, { items, party, warehouse, creator }) {
   let creatorName = ''
   if (order[cfg.personField]) {
     creatorName = order[cfg.personField]
-  } else if (order.created_by) {
-    const u = await db.first('SELECT full_name, username FROM users WHERE id = ?', order.created_by)
-    creatorName = u ? u.full_name || u.username || '' : ''
+  } else if (creator) {
+    creatorName = creator.full_name || creator.username || ''
   }
 
-  const out = {
+  return {
     id: order.id,
     order_no: order.order_no,
     [cfg.party.fk]: order[cfg.party.fk] ?? null,
@@ -162,7 +158,7 @@ async function decorate(ctx, cfg, order) {
     created_by: order.created_by ?? null,
     created_at: isoOf(order.created_at),
     updated_at: isoOf(order.updated_at),
-    items: await buildItems(ctx, cfg, items),
+    items,
     [`${cfg.party.respPrefix}_name`]: party
       ? party.name
       : order[cfg.party.fk]
@@ -177,65 +173,119 @@ async function decorate(ctx, cfg, order) {
       : '',
     creator_name: creatorName,
   }
-
-  return out
 }
 
-/** 列表页摘要：商品名称 / 规格型号 / 明细行数 */
-async function attachSummaries(ctx, cfg, orders, decorated) {
-  if (!orders.length) return
-
+/** 单张单据（详情用）：关联数据逐个查，一张单最多 5 条查询，可以接受 */
+async function decorate(ctx, cfg, order) {
   const { db } = ctx
-  const oids = orders.map((o) => o.id)
-  const ph = oids.map(() => '?').join(',')
-  const items = await db.all(
-    `SELECT order_id, product_id FROM ${cfg.table.item} WHERE order_id IN (${ph})`,
-    ...oids
+
+  const rawItems = await db.all(
+    `SELECT * FROM ${cfg.table.item} WHERE order_id = ? ORDER BY id`,
+    order.id
   )
 
-  const pids = [...new Set(items.map((i) => i.product_id).filter(Boolean))]
-  const nameMap = new Map()
-  const specMap = new Map()
-  if (pids.length) {
-    const pph = pids.map(() => '?').join(',')
-    const prods = await db.all(
-      `SELECT id, name, spec FROM products WHERE id IN (${pph})`,
-      ...pids
-    )
-    for (const p of prods) {
-      nameMap.set(p.id, p.name)
-      specMap.set(p.id, p.spec)
-    }
-  }
+  const party = order[cfg.party.fk]
+    ? await db.first(
+        `SELECT id, name, contact, phone FROM ${cfg.party.table} WHERE id = ?`,
+        order[cfg.party.fk]
+      )
+    : null
 
-  const names = new Map()
-  const specs = new Map()
-  for (const it of items) {
-    const nm = nameMap.get(it.product_id)
-    if (nm) {
-      if (!names.has(it.order_id)) names.set(it.order_id, [])
-      names.get(it.order_id).push(nm)
-    }
-    const sp = specMap.get(it.product_id)
-    if (sp) {
-      if (!specs.has(it.order_id)) specs.set(it.order_id, [])
-      specs.get(it.order_id).push(sp)
-    }
-  }
+  const warehouse = order.warehouse_id
+    ? await db.first('SELECT id, name FROM warehouses WHERE id = ?', order.warehouse_id)
+    : null
 
-  const summarize = (labels) => {
-    if (!labels || !labels.length) return ''
-    if (labels.length === 1) return labels[0]
-    return `${labels[0]} 等${labels.length}项`
-  }
+  const creator = order.created_by
+    ? await db.first('SELECT full_name, username FROM users WHERE id = ?', order.created_by)
+    : null
 
-  for (const d of decorated) {
-    const nl = names.get(d.id) || []
-    d.item_count = nl.length
-    d.product_summary = summarize(nl)
-    d.spec_summary = summarize(specs.get(d.id) || [])
-  }
+  const prodMap = await loadProducts(db, rawItems)
+
+  return shapeOrder(cfg, order, {
+    items: shapeItems(cfg, rawItems, prodMap),
+    party,
+    warehouse,
+    creator,
+  })
 }
+
+/**
+ * 整页单据（列表用）—— **每种关联只查一次**，查询数与页大小无关（约 5~9 条）。
+ *
+ * 原来的写法是 `for (const o of orders) await decorate(...)`，每张单 4~6 条查询：
+ * 一页 20 单就是 100+ 次，直接撞上 D1「每次 Worker 调用查询次数」上限
+ * （免费 50 / 付费 1000）—— 免费计划下一页十几单就打不开了。
+ * 这里顺带把列表摘要（商品名称/规格/项数）也算出来，省掉原来重复查一次明细。
+ */
+async function decorateMany(ctx, cfg, orders) {
+  if (!orders.length) return []
+  const { db } = ctx
+  const oids = orders.map((o) => o.id)
+
+  const allItems = await allInChunks(
+    db,
+    oids,
+    (ph) => `SELECT * FROM ${cfg.table.item} WHERE order_id IN (${ph}) ORDER BY id`
+  )
+  const itemsByOrder = new Map()
+  for (const it of allItems) {
+    if (!itemsByOrder.has(it.order_id)) itemsByOrder.set(it.order_id, [])
+    itemsByOrder.get(it.order_id).push(it)
+  }
+
+  const prodMap = await loadProducts(db, allItems)
+
+  const partyMap = new Map()
+  for (const p of await allInChunks(
+    db,
+    [...new Set(orders.map((o) => o[cfg.party.fk]).filter(Boolean))],
+    (ph) => `SELECT id, name, contact, phone FROM ${cfg.party.table} WHERE id IN (${ph})`
+  )) {
+    partyMap.set(p.id, p)
+  }
+
+  const whMap = new Map()
+  for (const w of await allInChunks(
+    db,
+    [...new Set(orders.map((o) => o.warehouse_id).filter(Boolean))],
+    (ph) => `SELECT id, name FROM warehouses WHERE id IN (${ph})`
+  )) {
+    whMap.set(w.id, w)
+  }
+
+  const userMap = new Map()
+  for (const u of await allInChunks(
+    db,
+    [...new Set(orders.map((o) => o.created_by).filter(Boolean))],
+    (ph) => `SELECT id, full_name, username FROM users WHERE id IN (${ph})`
+  )) {
+    userMap.set(u.id, u)
+  }
+
+  return orders.map((o) => {
+    const raw = itemsByOrder.get(o.id) || []
+    const out = shapeOrder(cfg, o, {
+      items: shapeItems(cfg, raw, prodMap),
+      party: partyMap.get(o[cfg.party.fk]) || null,
+      warehouse: whMap.get(o.warehouse_id) || null,
+      creator: userMap.get(o.created_by) || null,
+    })
+
+    // 列表摘要：直接用已经取到的明细算，不再单独查一遍
+    const names = []
+    const specs = []
+    for (const it of raw) {
+      const p = prodMap.get(it.product_id)
+      if (p && p.name) names.push(p.name)
+      if (p && p.spec) specs.push(p.spec)
+    }
+    out.item_count = names.length
+    out.product_summary = summarize(names)
+    out.spec_summary = summarize(specs)
+    return out
+  })
+}
+
 
 // ---------------- 工厂 ----------------
 
@@ -320,9 +370,8 @@ export function makeOrderRoutes(cfg) {
       offset
     )
 
-    const decorated = []
-    for (const o of orders) decorated.push(await decorate(ctx, cfg, o))
-    await attachSummaries(ctx, cfg, orders, decorated)
+    // 整页一次性装饰（原来逐单 decorate 是 N+1：一页 20 单要 100+ 次查询）
+    const decorated = await decorateMany(ctx, cfg, orders)
 
     return paginated(total, page, pageSize, decorated)
   }
@@ -345,11 +394,13 @@ export function makeOrderRoutes(cfg) {
     }
 
     // 商品存在性（Python 版未校验，这里补上，避免外键错误）
+    // 分块查询：一张单可能有上百个明细，不分块会撞 D1 的 100 参数上限
     const pids = [...new Set(items.map((i) => Number(i.product_id)).filter(Boolean))]
-    const ph = pids.map(() => '?').join(',')
-    const found = pids.length
-      ? new Set((await db.all(`SELECT id FROM products WHERE id IN (${ph})`, ...pids)).map((r) => r.id))
-      : new Set()
+    const found = new Set(
+      (await allInChunks(db, pids, (ph) => `SELECT id FROM products WHERE id IN (${ph})`)).map(
+        (r) => r.id
+      )
+    )
     const missing = pids.filter((p) => !found.has(p))
     if (missing.length) bad(`商品不存在：${missing.join(', ')}`)
 
@@ -413,26 +464,27 @@ export function makeOrderRoutes(cfg) {
 
     // 明细：校验已在前面做完，这里整批原子写入；
     // 万一失败，补偿删除刚建的主单，避免留下无明细的孤儿单
+    //
+    // 用多行 INSERT：一张单可能有上百条明细，逐行一条语句会撞上
+    // D1「每次调用查询次数」上限（免费 50）。8 列 → 每语句 12 行，
+    // 150 条明细从 150 条语句降到 13 条。
+    const itemCols = [
+      'order_id', 'product_id', 'quantity', 'price',
+      'tax_rate', 'amount', 'remark', 'created_at',
+    ]
+    const itemRows = items.map((it) => [
+      orderId,
+      Number(it.product_id),
+      Number(it.quantity),
+      Number(it.price ?? 0),
+      Number(it.tax_rate ?? 0),
+      Number(it.quantity) * Number(it.price ?? 0),
+      blankToNull(it.remark),
+      now,
+    ])
+
     try {
-      await db.batch(
-        items.map((it) =>
-          db.raw
-            .prepare(
-              `INSERT INTO ${I} (order_id, product_id, quantity, price, tax_rate, amount, remark, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-            )
-            .bind(
-              orderId,
-              Number(it.product_id),
-              Number(it.quantity),
-              Number(it.price ?? 0),
-              Number(it.tax_rate ?? 0),
-              Number(it.quantity) * Number(it.price ?? 0),
-              blankToNull(it.remark),
-              now
-            )
-        )
-      )
+      await db.batch(multiRowInsert(db, I, itemCols, itemRows))
     } catch (e) {
       await db.batch([
         db.raw.prepare(`DELETE FROM ${I} WHERE order_id = ?`).bind(orderId),
@@ -463,10 +515,11 @@ export function makeOrderRoutes(cfg) {
     }
 
     const pids = [...new Set(items.map((i) => Number(i.product_id)).filter(Boolean))]
-    const ph = pids.map(() => '?').join(',')
-    const found = pids.length
-      ? new Set((await db.all(`SELECT id FROM products WHERE id IN (${ph})`, ...pids)).map((r) => r.id))
-      : new Set()
+    const found = new Set(
+      (await allInChunks(db, pids, (ph) => `SELECT id FROM products WHERE id IN (${ph})`)).map(
+        (r) => r.id
+      )
+    )
     const missing = pids.filter((p) => !found.has(p))
     if (missing.length) bad(`商品不存在：${missing.join(', ')}`)
 

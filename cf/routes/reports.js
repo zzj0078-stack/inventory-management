@@ -278,40 +278,36 @@ async function profitReport(ctx) {
     params.push(endOfDayBound(endDate))
   }
 
+  // 用 JOIN 一次取全，而不是「先查 product_id 再 IN (...) 回查商品」。
+  // 后者在卖过的商品超过 100 个时会撞上 D1 的「每查询最多 100 个绑定参数」
+  // 限制，直接报 too many SQL variables（150 个商品时实测 500）。
+  // JOIN 顺带也实现了「跳过已删除商品」的语义。
   const rows = await db.all(
-    `SELECT i.product_id AS product_id,
+    `SELECT p.id            AS product_id,
+            p.name          AS name,
+            p.purchase_price AS purchase_price,
             SUM(i.quantity) AS total_qty,
             SUM(i.amount)   AS total_sale_amount
        FROM sales_items i
        JOIN sales_orders o ON o.id = i.order_id
+       JOIN products p     ON p.id = i.product_id
       WHERE ${where.join(' AND ')}
-      GROUP BY i.product_id`,
+      GROUP BY p.id, p.name, p.purchase_price`,
     ...params
   )
-
-  const pids = rows.map((r) => r.product_id).filter(Boolean)
-  const priceMap = new Map()
-  if (pids.length) {
-    const ph = pids.map(() => '?').join(',')
-    for (const p of await db.all(`SELECT id, name, purchase_price FROM products WHERE id IN (${ph})`, ...pids)) {
-      priceMap.set(p.id, p)
-    }
-  }
 
   let totalSale = 0
   let totalCost = 0
   const detail = []
 
   for (const r of rows) {
-    const prod = priceMap.get(r.product_id)
-    if (!prod) continue // Python 版跳过已删除商品
     const qty = Number(r.total_qty || 0)
     const sale = Number(r.total_sale_amount || 0)
-    const cost = qty * Number(prod.purchase_price || 0)
+    const cost = qty * Number(r.purchase_price || 0)
     totalSale += sale
     totalCost += cost
     detail.push({
-      name: prod.name,
+      name: r.name,
       qty: Math.trunc(qty),
       sale,
       cost,

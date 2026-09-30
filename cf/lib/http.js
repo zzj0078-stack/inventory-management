@@ -85,9 +85,38 @@ export function paginationOf(url, { defaultSize = 20, maxSize = 1000 } = {}) {
 }
 
 /**
- * LIKE 模糊匹配参数（对应 SQLAlchemy 的 .contains()）
- * % 和 _ 转义，避免用户输入被当通配符
+ * 按 UTF-8 **字节数**截断字符串，且不切断多字节字符。
+ * （JS 的 String.length 是 UTF-16 码元数，和数据库看到的字节数不是一回事）
  */
-export function likeArg(keyword) {
-  return '%' + String(keyword).replace(/[\\%_]/g, (c) => '\\' + c) + '%'
+export function truncateUtf8(s, maxBytes) {
+  const enc = new TextEncoder()
+  const str = String(s)
+  if (enc.encode(str).length <= maxBytes) return str
+  let out = ''
+  let used = 0
+  for (const ch of str) {
+    const n = enc.encode(ch).length
+    if (used + n > maxBytes) break
+    out += ch
+    used += n
+  }
+  return out
+}
+
+/**
+ * LIKE 模糊匹配参数（对应 SQLAlchemy 的 .contains()）
+ * % 和 _ 转义，避免用户输入被当通配符。
+ *
+ * ⚠️ D1 限制：**LIKE / GLOB 模式最长 50 字节**，超出直接报
+ *    `D1_ERROR: LIKE or GLOB pattern too complex`（500）。
+ *    实测：模式 50 字节 → 200；56 字节 → 500。
+ *    也就是用户搜超过 ~16 个汉字 / ~48 个 ASCII 字符就会把接口打崩。
+ *    所以这里按字节截断关键词 —— 搜索框里粘贴长文本仍能正常出结果，
+ *    只是按前 46 字节匹配，而不是整个字符串。
+ */
+export const LIKE_PATTERN_MAX_BYTES = 50
+
+export function likeArg(keyword, maxBytes = 46) {
+  const escaped = String(keyword).replace(/[\\%_]/g, (c) => '\\' + c)
+  return '%' + truncateUtf8(escaped, maxBytes) + '%'
 }

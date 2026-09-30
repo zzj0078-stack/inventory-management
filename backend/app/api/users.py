@@ -1,3 +1,4 @@
+import re
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -20,6 +21,27 @@ def _clean_email(email: Optional[str]) -> Optional[str]:
         return None
     email = email.strip()
     return email or None
+
+
+# 首字符：字母或汉字；其余：字母数字、下划线、点、短横线、汉字
+# 前端会自动生成拼音登录名，但后端不禁止中文账号（内部系统，允许 张三 这类登录名）
+USERNAME_RE = re.compile(r"^[A-Za-z\u4e00-\u9fa5][A-Za-z0-9_.\-\u4e00-\u9fa5]{0,49}$")
+
+
+def _normalize_username(username: Optional[str]) -> str:
+    """登录名归一：去首尾空格"""
+    return (username or "").strip()
+
+
+def _check_username(username: str):
+    """登录名格式校验：字母或汉字开头，不含空格与特殊符号"""
+    if not username:
+        raise HTTPException(status_code=400, detail="请输入登录名")
+    if not USERNAME_RE.match(username):
+        raise HTTPException(
+            status_code=400,
+            detail="登录名需以字母或汉字开头，只能包含字母、数字、汉字、下划线、点、短横线，且不超过 50 位",
+        )
 
 
 def _role_perm_count(db, role: Role) -> int:
@@ -91,7 +113,10 @@ async def create_user(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    if db.query(User).filter(User.username == user_data.username).first():
+    username = _normalize_username(user_data.username)
+    _check_username(username)
+
+    if db.query(User).filter(User.username == username).first():
         raise HTTPException(status_code=400, detail="用户名已存在")
 
     email = _clean_email(user_data.email)
@@ -108,7 +133,7 @@ async def create_user(
         raise HTTPException(status_code=400, detail=err)
 
     user = User(
-        username=user_data.username,
+        username=username,
         email=email,
         password_hash=get_password_hash(user_data.password),
         full_name=user_data.full_name,
@@ -117,7 +142,7 @@ async def create_user(
         status=1,
     )
     db.add(user)
-    log_op(db, current_user, "用户管理", "新增用户", user_data.username,
+    log_op(db, current_user, "用户管理", "新增用户", username,
            f"角色#{user_data.role_id}")
     db.commit()
     db.refresh(user)
@@ -150,9 +175,13 @@ async def update_user(
     data = user_data.model_dump(exclude_unset=True)
 
     # 唯一性校验（排除自身）
-    if data.get("username") and data["username"] != user.username:
-        if db.query(User).filter(User.username == data["username"], User.id != user_id).first():
-            raise HTTPException(status_code=400, detail="用户名已存在")
+    if "username" in data:
+        uname = _normalize_username(data.pop("username"))
+        if uname and uname != user.username:
+            _check_username(uname)
+            if db.query(User).filter(User.username == uname, User.id != user_id).first():
+                raise HTTPException(status_code=400, detail="用户名已存在")
+            user.username = uname
     if "email" in data:
         email = _clean_email(data.pop("email"))
         if email and email != user.email:

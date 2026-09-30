@@ -86,15 +86,25 @@
 
     <el-dialog v-model="dialogVisible" :title="dialogTitle" width="520px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
+        <el-form-item label="姓名" prop="full_name">
+          <el-input v-model="form.full_name" placeholder="真实姓名，留空则登录名需手动填" clearable />
+          <div class="form-hint">先填姓名，登录名会自动按全拼生成（如 张三 → zhangsan）</div>
+        </el-form-item>
         <el-form-item label="登录名" prop="username">
-          <el-input v-model="form.username" placeholder="英文或拼音，用于登录" :disabled="!!editId" />
+          <el-input v-model="form.username" placeholder="自动生成，也可手动修改" :disabled="!!editId">
+            <template v-if="!editId" #append>
+              <el-button :icon="Refresh" @click="regenerateUsername" title="按姓名重新生成" />
+            </template>
+          </el-input>
+          <div class="form-hint">
+            <template v-if="editId">登录名作为账号标识，创建后不可修改</template>
+            <template v-else-if="usernameAuto">按姓名自动生成，重名会自动加序号；也可直接手动输入</template>
+            <template v-else>已手动指定；点右侧 ⟳ 可恢复按姓名自动生成</template>
+          </div>
         </el-form-item>
         <el-form-item v-if="!editId" label="密码" prop="password">
           <el-input v-model="form.password" type="password" placeholder="至少 8 位，含特殊字符" show-password />
           <div class="form-hint">{{ PASSWORD_RULES_TEXT }}</div>
-        </el-form-item>
-        <el-form-item label="姓名" prop="full_name">
-          <el-input v-model="form.full_name" placeholder="真实姓名" />
         </el-form-item>
         <el-form-item label="角色" prop="role_id">
           <el-select v-model="form.role_id" placeholder="请选择角色（决定该用户的权限）" style="width:100%">
@@ -126,11 +136,13 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { getUsers, createUser, updateUser, deleteUser, getRoles, resetPassword } from '../api/modules'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Refresh } from '@element-plus/icons-vue'
 import { confirmDelete } from '../utils/confirm'
 import { passwordRule, validatePassword, PASSWORD_RULES_TEXT } from '../utils/password'
+import { suggestLoginName, validateLoginName } from '../utils/loginName'
 
 const loading = ref(false)
 const submitLoading = ref(false)
@@ -140,6 +152,18 @@ const dialogVisible = ref(false)
 const dialogTitle = ref('')
 const formRef = ref(null)
 const editId = ref(null)
+
+/** 已知登录名（用于自动避重） */
+const takenUsernames = ref([])
+/** 登录名是否仍由姓名自动推导（用户手动改过后变 false） */
+const usernameAuto = ref(true)
+/**
+ * 最近一次「程序写入」的登录名。
+ * 不能用布尔标志：Vue 的 watch 回调是异步批处理的，
+ * 设标志→改值→清标志 三步在同一个 tick 内完成，watch 跑到时标志早已复位，
+ * 会把自动生成误判成用户手动输入。改为比对值，时序无关。
+ */
+const lastAutoUsername = ref(null)
 
 const searchForm = reactive({ keyword: '', role_id: null, status: null })
 const pagination = reactive({ page: 1, pageSize: 20, total: 0 })
@@ -155,7 +179,15 @@ const form = reactive({
 })
 
 const rules = {
-  username: [{ required: true, message: '请输入登录名', trigger: 'blur' }],
+  username: [
+    {
+      validator: (rule, value, callback) => {
+        const err = validateLoginName(value)
+        callback(err ? new Error(err) : undefined)
+      },
+      trigger: 'blur'
+    }
+  ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
     passwordRule()
@@ -225,19 +257,69 @@ const resetForm = () => {
   form.role_id = null
   form.status = 1
   editId.value = null
+  usernameAuto.value = true
+  lastAutoUsername.value = null
 }
+
+/** 拉取全部登录名，供自动避重使用（用户通常只有几十个，一次取完） */
+const loadUsernames = async () => {
+  try {
+    const res = await getUsers({ page: 1, page_size: 100 })
+    takenUsernames.value = (res.items || []).map((u) => u.username).filter(Boolean)
+  } catch (e) {
+    takenUsernames.value = tableData.value.map((u) => u.username).filter(Boolean)
+  }
+}
+
+/** 程序改写登录名（记录该值，供 watch 区分自动生成 / 手动输入） */
+const applyUsername = (value) => {
+  lastAutoUsername.value = value
+  form.username = value
+}
+
+/** 按姓名重新生成登录名（点 ⟳ 或自动触发） */
+const regenerateUsername = () => {
+  usernameAuto.value = true
+  const name = form.full_name || ''
+  const generated = suggestLoginName(name, takenUsernames.value)
+  applyUsername(generated)
+  if (!generated && name) {
+    ElMessage.warning('该姓名无法生成拼音登录名，请手动填写')
+  }
+}
+
+// 姓名变化 -> 自动重算登录名（仅新增模式，且用户没手动改过）
+watch(
+  () => form.full_name,
+  () => {
+    if (editId.value || !usernameAuto.value) return
+    applyUsername(suggestLoginName(form.full_name, takenUsernames.value))
+  }
+)
+
+// 用户手动编辑登录名 -> 退出自动模式（与程序写入的值相同则忽略）
+watch(
+  () => form.username,
+  (val) => {
+    if (editId.value) return
+    if (val === lastAutoUsername.value) return
+    usernameAuto.value = false
+  }
+)
 
 const handleAdd = async () => {
   resetForm()
   if (!roles.value.length) await loadRoles()
+  await loadUsernames()
   dialogTitle.value = '新增用户'
   dialogVisible.value = true
 }
 
 const handleEdit = async (row) => {
   if (!roles.value.length) await loadRoles()
+  usernameAuto.value = false
   editId.value = row.id
-  form.username = row.username
+  applyUsername(row.username)
   form.password = ''
   form.full_name = row.full_name || ''
   form.email = row.email || ''

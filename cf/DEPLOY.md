@@ -339,6 +339,17 @@ node cf/verify-healthfix.mjs https://inventory-b4k.pages.dev admin 密码   # �
 
 （需先用 SQL 人为制造金额不一致；脚本会验证自检能报出、修复按正确口径重算、复检干净。19 项断言。）
 
+## 路由面覆盖检查
+
+```bash
+node cf/verify-routes.mjs https://inventory-b4k.pages.dev
+```
+
+把全部路由从模块里枚举出来，逐条真实请求一次，确认**没有一条是 404**（404 = 路由没注册）。
+比数数量更强的证据 —— 数量对不代表每条都接对了。
+
+线上实测：**已注册可达 112 / 112**。
+
 ## 已知坑
 
 | 坑 | 说明 |

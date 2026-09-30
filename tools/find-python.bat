@@ -10,9 +10,9 @@ REM
 REM  Resolution order:
 REM    1. %INVENTORY_PYTHON%  (explicit override)
 REM    2. project virtualenv  (backend\.venv or .venv)
-REM    3. py launcher         (py -3)
-REM    4. python on PATH      (skips the Windows Store stub)
-REM    5. common install dirs
+REM    3. python on PATH      (skips the Windows Store stub)
+REM    4. common install dirs
+REM    5. py launcher         (py -3) - last resort, can trigger a download
 REM
 REM  NOTE: no setlocal here - PY must survive in the caller's scope.
 REM ============================================================
@@ -38,15 +38,10 @@ if exist "%~dp0..\.venv\Scripts\python.exe" (
     exit /b 0
 )
 
-REM ---- 3. py launcher ----
-for /f "delims=" %%i in ('py -3 -c "import sys;print(sys.executable)" 2^>nul') do (
-    if exist "%%i" (
-        set "PY=%%i"
-        exit /b 0
-    )
-)
-
-REM ---- 4. python on PATH (verify it actually runs) ----
+REM ---- 3. python on PATH (verify it actually runs) ----
+REM      Checked BEFORE the py launcher: on machines where the WindowsApps
+REM      "py" stub is present but no Python is registered, running "py -3"
+REM      triggers an interactive Python download prompt.
 for /f "delims=" %%i in ('where python 2^>nul') do (
     "%%i" --version >nul 2>&1 && (
         set "PY=%%i"
@@ -54,7 +49,7 @@ for /f "delims=" %%i in ('where python 2^>nul') do (
     )
 )
 
-REM ---- 5. common install locations ----
+REM ---- 4. common install locations ----
 for %%d in (
     "%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
     "%LOCALAPPDATA%\Programs\Python\Python312\python.exe"
@@ -72,6 +67,14 @@ for %%d in (
 ) do (
     if exist %%d (
         set "PY=%%~d"
+        exit /b 0
+    )
+)
+
+REM ---- 5. py launcher (last resort, may trigger a download prompt) ----
+for /f "delims=" %%i in ('py -3 -c "import sys;print(sys.executable)" 2^>nul') do (
+    if exist "%%i" (
+        set "PY=%%i"
         exit /b 0
     )
 )

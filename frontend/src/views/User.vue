@@ -91,6 +91,7 @@
         </el-form-item>
         <el-form-item v-if="!editId" label="密码" prop="password">
           <el-input v-model="form.password" type="password" placeholder="至少 8 位，含特殊字符" show-password />
+          <div class="form-hint">{{ PASSWORD_RULES_TEXT }}</div>
         </el-form-item>
         <el-form-item label="姓名" prop="full_name">
           <el-input v-model="form.full_name" placeholder="真实姓名" />
@@ -115,14 +116,6 @@
         <el-form-item label="状态">
           <el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="启用" inactive-text="禁用" />
         </el-form-item>
-        <el-alert
-          v-if="!editId"
-          type="info"
-          :closable="false"
-          show-icon
-          :title="PASSWORD_RULES_TEXT"
-          style="margin-left:100px"
-        />
       </el-form>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>

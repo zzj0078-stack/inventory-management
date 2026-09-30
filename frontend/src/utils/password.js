@@ -12,9 +12,9 @@
 export const MIN_LENGTH = 8
 export const MAX_LENGTH = 64
 
-/** 规则说明文案（表单提示用） */
+/** 规则说明文案（表单提示用，保持紧凑以免撑宽弹窗） */
 export const PASSWORD_RULES_TEXT =
-  '密码至少 8 位，且必须包含至少 1 个特殊字符（如 ! @ # $ % ^ & *），不能含空格'
+  '至少 8 位，需含至少 1 个特殊字符（如 ! @ # $ % ^ & *），不能有空格'
 
 /** 特殊字符：ASCII 可见标点 + 常见全角/中文标点 */
 const SPECIAL_CHARS = new Set(

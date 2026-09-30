@@ -95,11 +95,11 @@
         </el-form-item>
         <el-form-item label="新密码" prop="new_password">
           <el-input v-model="pwdForm.new_password" type="password" show-password placeholder="至少 8 位，含特殊字符" />
+          <div class="form-hint">{{ PASSWORD_RULES_TEXT }}</div>
         </el-form-item>
         <el-form-item label="确认密码" prop="confirm_password">
           <el-input v-model="pwdForm.confirm_password" type="password" show-password />
         </el-form-item>
-        <el-alert type="info" :closable="false" show-icon :title="PASSWORD_RULES_TEXT" style="margin-left:100px" />
       </el-form>
       <template #footer>
         <el-button @click="pwdDialogVisible = false">取消</el-button>
@@ -203,6 +203,13 @@ const handleLogout = () => {
   color: white;
   font-size: 16px;
   font-weight: bold;
+}
+/* 表单字段下方的说明文字，随 label-width 自动缩进，不会撑出弹窗 */
+.form-hint {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
+  margin-top: 2px;
 }
 </style>
 

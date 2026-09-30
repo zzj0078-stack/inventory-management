@@ -19,7 +19,7 @@ ASCII_SPECIAL = set(string.punctuation)
 UNICODE_SPECIAL = set("！？。，、；：“”‘’（）【】《》—…·￥±×÷≤≥≠∞§¶†‡•‰′″‹›«»–¡¿")
 SPECIAL_CHARS = ASCII_SPECIAL | UNICODE_SPECIAL
 
-RULES_TEXT = "密码至少 8 位，且必须包含至少 1 个特殊字符（如 ! @ # $ % ^ & *），不能含空格"
+RULES_TEXT = "至少 8 位，需含至少 1 个特殊字符（如 ! @ # $ % ^ & *），不能有空格"
 
 
 def special_chars_in(password: str):

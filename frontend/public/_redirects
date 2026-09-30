@@ -1,0 +1,12 @@
+# Cloudflare Pages 路由规则
+#
+# Vue Router 用的是 createWebHistory()（history 模式），
+# 直接访问 /sales、/products 这类深链接时，静态资源不存在，
+# 需要回退到 index.html 由前端路由接管，否则会 404。
+#
+# 说明：
+#   - /api/* 由 functions/api/[[route]].js 处理，Pages Functions 优先于本文件
+#   - 放在 frontend/public/ 下，vite 构建时会原样复制到 dist 根目录
+#   - 最后一行是兜底，必须放最后
+
+/*    /index.html   200

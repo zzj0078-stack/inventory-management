@@ -35,7 +35,6 @@
           v-for="o in items"
           :key="o.id"
           class="list-item"
-          style="width: 100%; text-align: left; border: 0; background: transparent"
           @click="open(o)"
         >
           <div class="between">

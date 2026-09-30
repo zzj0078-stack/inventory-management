@@ -125,7 +125,6 @@
             v-for="p in pk.items"
             :key="p.id"
             class="picker-item"
-            style="width: 100%; border-left: 0; border-right: 0; background: transparent; font-family: inherit"
             @click="addProduct(p)"
           >
             <div class="grow" style="text-align: left">

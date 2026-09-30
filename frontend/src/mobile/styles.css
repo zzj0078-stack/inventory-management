@@ -183,12 +183,27 @@ body {
   margin-bottom: 10px;
 }
 
+/* 列表行。
+   ⚠️ 两条必须写全，否则用 <button> 当容器时会出问题：
+   1) width: 100% —— <button> 的 width:auto 是「收缩到内容宽度」（shrink-to-fit），
+      不是填满容器，所以菜单项会缩成一小块、右边留一大片空白。
+   2) border: 0 + 只留 border-bottom —— 按钮有 UA 默认的四周边框，
+      不显式清掉就会和我写的底边框叠成「双层框」，看起来像一个个小方格。 */
 .list-item {
-  padding: 13px 14px;
-  border-bottom: 1px solid var(--line);
   display: block;
+  width: 100%;
+  margin: 0;
+  padding: 13px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
   color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
 }
 
 .list-item:last-child {
@@ -613,12 +628,23 @@ textarea.input {
 
 /* ---------------- 选择列表（客户/商品选择用）---------------- */
 
+/* 选择列表项（客户/商品选择用）。同样是 <button>，理由见 .list-item 上方注释 */
 .picker-item {
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
+  margin: 0;
   padding: 12px 4px;
+  border: 0;
   border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .picker-item:last-child {

@@ -33,10 +33,10 @@
 
         <el-tab-pane label="利润分析" name="profit">
           <el-row :gutter="20" style="margin-bottom:16px">
-            <el-col :span="6"><el-statistic title="销售收入" :value="profitData.total_sale" prefix="¥" :precision="2" /></el-col>
-            <el-col :span="6"><el-statistic title="销售成本" :value="profitData.total_cost" prefix="¥" :precision="2" /></el-col>
-            <el-col :span="6"><el-statistic title="毛利润" :value="profitData.profit" prefix="¥" :precision="2" :value-style="{color: profitData.profit >= 0 ? '#67c23a' : '#f56c6c'}" /></el-col>
-            <el-col :span="6"><el-statistic title="毛利率" :value="profitData.profit_rate" suffix="%" :precision="1" /></el-col>
+            <el-col :span="costVisible ? 6 : 24"><el-statistic title="销售收入" :value="profitData.total_sale" prefix="¥" :precision="2" /></el-col>
+            <el-col v-if="costVisible" :span="6"><el-statistic title="销售成本" :value="profitData.total_cost" prefix="¥" :precision="2" /></el-col>
+            <el-col v-if="costVisible" :span="6"><el-statistic title="毛利润" :value="profitData.profit" prefix="¥" :precision="2" :value-style="{color: profitData.profit >= 0 ? '#67c23a' : '#f56c6c'}" /></el-col>
+            <el-col v-if="costVisible" :span="6"><el-statistic title="毛利率" :value="profitData.profit_rate" suffix="%" :precision="1" /></el-col>
           </el-row>
         </el-tab-pane>
       </el-tabs>
@@ -44,12 +44,14 @@
   </div>
 </template>
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { getSalesReport, getPurchaseReport, getProfitReport } from '../api/modules'
 const activeTab = ref('sales')
 const salesData = reactive({ total_amount: 0, order_count: 0, by_customer: [] })
 const purchaseData = reactive({ total_amount: 0, order_count: 0, by_supplier: [] })
-const profitData = reactive({ total_sale: 0, total_cost: 0, profit: 0, profit_rate: 0 })
+const profitData = reactive({ total_sale: 0, total_cost: 0, profit: 0, profit_rate: 0, cost_visible: true })
+/** 后端在没有 product:cost 权限时会返回 cost_visible=false，并抹掉成本/毛利 */
+const costVisible = computed(() => profitData.cost_visible !== false)
 const loadTab = async (tab) => {
   if (tab === 'sales') { const r = await getSalesReport(); Object.assign(salesData, r) }
   else if (tab === 'purchase') { const r = await getPurchaseReport(); Object.assign(purchaseData, r) }

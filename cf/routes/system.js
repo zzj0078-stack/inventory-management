@@ -7,6 +7,7 @@ import { bad, notFound, ok, json, paginated, paginationOf, likeArg } from '../li
 import { nowLocal, isoOf } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
 import { chunk } from '../lib/db.js'
+import { canSeeCost } from '../lib/perms.js'
 
 // ==================== 操作日志 ====================
 
@@ -311,18 +312,28 @@ async function exportCsv(ctx) {
          JOIN warehouses w ON w.id = i.warehouse_id
         ORDER BY p.name`
     )
+    // 导出同样受 product:cost 控制：没有权限时**整列都不出现**，
+    // 否则「藏列」等于没藏 —— 导出的 CSV 里照样有成本价。
+    const showCost = canSeeCost(ctx.perms)
+    const header = showCost
+      ? ['商品', '商品编码', '仓库', '数量', '成本价', '金额', '最低库存']
+      : ['商品', '商品编码', '仓库', '数量', '最低库存']
     return csvResponse(
       `inventory_${ts}.csv`,
-      ['商品', '商品编码', '仓库', '数量', '成本价', '金额', '最低库存'],
-      rows.map((r) => [
-        r.name,
-        r.sku || '',
-        r.warehouse_name,
-        r.quantity,
-        Number(r.purchase_price || 0),
-        Number(r.quantity || 0) * Number(r.purchase_price || 0),
-        r.min_stock ?? 0,
-      ])
+      header,
+      rows.map((r) =>
+        showCost
+          ? [
+              r.name,
+              r.sku || '',
+              r.warehouse_name,
+              r.quantity,
+              Number(r.purchase_price || 0),
+              Number(r.quantity || 0) * Number(r.purchase_price || 0),
+              r.min_stock ?? 0,
+            ]
+          : [r.name, r.sku || '', r.warehouse_name, r.quantity, r.min_stock ?? 0]
+      )
     )
   }
 

@@ -106,6 +106,7 @@ INSERT INTO permissions (id, code, name, module, created_at) VALUES (81, 'log:ex
 INSERT INTO permissions (id, code, name, module, created_at) VALUES (82, 'system:check', '数据自检', 'system', '2026-09-29 16:57:37.957540');
 INSERT INTO permissions (id, code, name, module, created_at) VALUES (83, 'system:fix', '自动修复', 'system', '2026-09-29 16:57:37.957540');
 INSERT INTO permissions (id, code, name, module, created_at) VALUES (84, 'system:print', '打印模板设置', 'system', '2026-09-29 16:57:37.957540');
+INSERT INTO permissions (id, code, name, module, created_at) VALUES (85, 'product:cost', '查看成本价', 'product', '2026-09-30 17:13:17.500025');
 
 -- ---------- 角色-权限关联 ----------
 INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 1);
@@ -192,6 +193,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 81);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 82);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 83);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 84);
+INSERT INTO role_permissions (role_id, permission_id) VALUES (1, 85);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 1);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 2);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 3);
@@ -262,6 +264,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 67);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 68);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 69);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 70);
+INSERT INTO role_permissions (role_id, permission_id) VALUES (2, 85);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (3, 1);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (3, 6);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (3, 7);
@@ -290,6 +293,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES (4, 28);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (4, 29);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (4, 47);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (4, 69);
+INSERT INTO role_permissions (role_id, permission_id) VALUES (4, 85);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (5, 1);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (5, 10);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (5, 15);
@@ -334,6 +338,7 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES (6, 67);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (6, 68);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (6, 69);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (6, 70);
+INSERT INTO role_permissions (role_id, permission_id) VALUES (6, 85);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (7, 1);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (7, 2);
 INSERT INTO role_permissions (role_id, permission_id) VALUES (7, 6);
@@ -354,10 +359,10 @@ INSERT INTO role_permissions (role_id, permission_id) VALUES (7, 69);
 -- ---------- admin 账号 ----------
 -- 只在不存在时插入，避免覆盖已改过的密码
 INSERT INTO users (username, email, password_hash, full_name, phone, role_id, status, created_at, updated_at)
-SELECT 'admin', 'admin@example.com', '47815102527309d1fd427450d71c0d7e:6768e1614a1098be0346163462facc3924188b2764587da9465c9a600c965fb0', '系统管理员', NULL, 1, 1, '2026-09-30 13:43:47.420243', '2026-09-30 13:43:47.420243'
+SELECT 'admin', 'admin@example.com', 'ad42ba4931cdbe0b6b8baeb8402ae4e7:e54f80844294eda59f5cda86b1bfa5d41f0062a427ccb3b586d3f2307141208e', '系统管理员', NULL, 1, 1, '2026-09-30 17:13:17.500025', '2026-09-30 17:13:17.500025'
 WHERE NOT EXISTS (SELECT 1 FROM users WHERE username = 'admin');
 
 -- ---------- 默认仓库 ----------
 INSERT INTO warehouses (name, address, manager, phone, status, created_at)
-SELECT '默认仓库', '总部', NULL, NULL, 1, '2026-09-30 13:43:47.420243'
+SELECT '默认仓库', '总部', NULL, NULL, 1, '2026-09-30 17:13:17.500025'
 WHERE NOT EXISTS (SELECT 1 FROM warehouses WHERE name = '默认仓库');

@@ -58,7 +58,7 @@
               </div>
               <div class="small muted mt8">
                 售价 <span class="num" style="color:#2f6fed;font-weight:600">{{ money(it.sale_price) }}</span>
-                <span class="muted-3"> / 采购 {{ money(it.purchase_price) }}</span>
+                <span v-if="hasPerm('product:cost')" class="muted-3"> / 采购 {{ money(it.purchase_price) }}</span>
               </div>
             </div>
             <div class="right">
@@ -86,6 +86,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { api } from '../api'
 import { money, num } from '../util'
+import { hasPerm } from '../store'
 
 const keyword = ref('')
 const warehouseId = ref(null)

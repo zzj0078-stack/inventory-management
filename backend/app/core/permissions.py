@@ -33,6 +33,9 @@ PERMISSION_GROUPS = [
     ]),
     ("product", "商品", [
         ("product:view", "查看商品"),
+        # 成本价（采购价）单独授权：销售员默认不给，避免报价时看到进价。
+        # 没有该权限时后端不返回 purchase_price，报表的成本/毛利也一并隐藏。
+        ("product:cost", "查看成本价"),
         ("product:add", "新增商品"),
         ("product:edit", "编辑商品"),
         ("product:delete", "删除商品"),
@@ -219,7 +222,7 @@ ROLE_TEMPLATES = [
         "patterns": [
             "dashboard:view",
             "supplier:view", "supplier:add", "supplier:edit",
-            "product:view", "category:view",
+            "product:view", "product:cost", "category:view",
             "purchase:view", "purchase:add", "purchase:edit", "purchase:print",
             "purchase_return:view", "purchase_return:add",
             "inventory:view",
@@ -248,6 +251,7 @@ ROLE_TEMPLATES = [
             "dashboard:view",
             "finance:*",
             "report:*",
+            "product:cost",
             "supplier:view", "customer:view",
             "purchase:view", "purchase:export",
             "sales:view", "sales:export",

@@ -5,6 +5,7 @@
 
 import { json } from '../lib/http.js'
 import { todayLocal, addDays, endOfDayBound } from '../lib/time.js'
+import { canSeeCost } from '../lib/perms.js'
 
 const ACTIVE = '(1,2,3,5,6)' // 已审核/部分/已完成/部分退货/已退货 —— 统计口径
 
@@ -296,6 +297,10 @@ async function profitReport(ctx) {
     ...params
   )
 
+  // 成本/毛利属于敏感数据：没有 product:cost（销售员默认没有）时不返回，
+  // 不是靠前端隐藏列 —— 前端藏了照样能直接从接口拿到。
+  const showCost = canSeeCost(ctx.perms)
+
   let totalSale = 0
   let totalCost = 0
   const detail = []
@@ -310,18 +315,23 @@ async function profitReport(ctx) {
       name: r.name,
       qty: Math.trunc(qty),
       sale,
-      cost,
-      profit: sale - cost,
+      cost: showCost ? cost : null,
+      profit: showCost ? sale - cost : null,
     })
   }
 
-  detail.sort((a, b) => b.profit - a.profit)
+  // 没权限时按销售额排序，避免用毛利排序间接泄露成本高低
+  detail.sort((a, b) => (showCost ? b.profit - a.profit : b.sale - a.sale))
 
   return json({
     total_sale: totalSale,
-    total_cost: totalCost,
-    profit: totalSale - totalCost,
-    profit_rate: totalSale > 0 ? Math.round(((totalSale - totalCost) / totalSale) * 10000) / 100 : 0,
+    total_cost: showCost ? totalCost : null,
+    profit: showCost ? totalSale - totalCost : null,
+    profit_rate:
+      showCost && totalSale > 0
+        ? Math.round(((totalSale - totalCost) / totalSale) * 10000) / 100
+        : null,
+    cost_visible: showCost,
     detail,
   })
 }
@@ -342,6 +352,9 @@ async function inventoryReport(ctx) {
       ORDER BY p.name, w.name`
   )
 
+  // 库存金额 = 数量 × 成本价，同样属于成本信息
+  const showCost = canSeeCost(ctx.perms)
+
   let totalQty = 0
   let totalValue = 0
   const items = []
@@ -357,14 +370,19 @@ async function inventoryReport(ctx) {
       sku: r.sku || '',
       warehouse_name: r.warehouse_name,
       quantity: qty,
-      cost_price: costPrice,
-      value,
+      cost_price: showCost ? costPrice : null,
+      value: showCost ? value : null,
       min_stock: r.min_stock ?? 0,
       low: qty <= Number(r.min_stock ?? 0),
     })
   }
 
-  return json({ total_qty: totalQty, total_value: totalValue, items })
+  return json({
+    total_qty: totalQty,
+    total_value: showCost ? totalValue : null,
+    cost_visible: showCost,
+    items,
+  })
 }
 
 export const routes = [

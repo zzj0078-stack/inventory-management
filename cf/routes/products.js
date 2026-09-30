@@ -6,6 +6,7 @@
 import { bad, notFound, notImplemented, ok, json, paginated, paginationOf, intParam, boolParam, likeArg } from '../lib/http.js'
 import { nowLocal, isoOf, dateStamp } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
+import { canSeeCost } from '../lib/perms.js'
 
 /** 这些字段允许为空，空串要转成 NULL（sku 有唯一索引，多条空串会违反约束） */
 const NULLABLE_IF_BLANK = new Set([
@@ -66,7 +67,7 @@ function integrityMsg(e) {
   return `数据保存失败：${text}`
 }
 
-function toResponse(row, categoryName = undefined) {
+function toResponse(row, categoryName = undefined, showCost = true) {
   return {
     id: row.id,
     name: row.name,
@@ -80,7 +81,9 @@ function toResponse(row, categoryName = undefined) {
     color: row.color ?? null,
     size: row.size ?? null,
     weight: row.weight ?? null,
-    purchase_price: row.purchase_price ?? 0,
+    // 没有 product:cost 权限（销售员默认没有）时不返回成本价。
+    // 必须在数据层拦截：前端藏列只是看不见，F12 直接调接口照样拿得到。
+    purchase_price: showCost ? row.purchase_price ?? 0 : null,
     sale_price: row.sale_price ?? 0,
     min_stock: row.min_stock ?? 0,
     image_url: row.image_url ?? null,
@@ -228,13 +231,14 @@ async function list(ctx) {
     offset
   )
 
-  return paginated(total, page, pageSize, rows.map((r) => toResponse(r, r.category_name ?? null)))
+  const showCost = canSeeCost(ctx.perms)
+  return paginated(total, page, pageSize, rows.map((r) => toResponse(r, r.category_name ?? null, showCost)))
 }
 
 /** 按 id 取商品（连带分类名）。
  *  注意：Python 版只在「列表」接口填 category_name，新增/详情返回 null。
  *  这里统一为始终填充 —— 是超集，不会破坏任何调用方。 */
-async function fetchProduct(db, id) {
+async function fetchProduct(db, id, showCost = true) {
   const row = await db.first(
     `SELECT p.*, c.name AS category_name
        FROM products p
@@ -242,12 +246,12 @@ async function fetchProduct(db, id) {
       WHERE p.id = ?`,
     id
   )
-  return row ? toResponse(row, row.category_name ?? null) : null
+  return row ? toResponse(row, row.category_name ?? null, showCost) : null
 }
 
 async function get(ctx) {
   const { db, params } = ctx
-  const data = await fetchProduct(db, Number(params.id))
+  const data = await fetchProduct(db, Number(params.id), canSeeCost(ctx.perms))
   if (!data) notFound('商品不存在')
   return json(data)
 }
@@ -285,7 +289,7 @@ async function create(ctx) {
 
   await logOp(db, user, '商品管理', '新增商品', data.name)
 
-  return json(await fetchProduct(db, id))
+  return json(await fetchProduct(db, id, canSeeCost(ctx.perms)))
 }
 
 async function update(ctx) {
@@ -327,7 +331,7 @@ async function update(ctx) {
 
   await logOp(db, user, '商品管理', '编辑商品', existing.name || '')
 
-  return json(await fetchProduct(db, id))
+  return json(await fetchProduct(db, id, canSeeCost(ctx.perms)))
 }
 
 async function remove(ctx) {

@@ -6,6 +6,7 @@
 import { bad, notFound, ok, json, paginated, paginationOf, intParam, boolParam, likeArg } from '../lib/http.js'
 import { nowLocal, isoOf } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
+import { canSeeCost } from '../lib/perms.js'
 
 // ==================== 仓库 ====================
 
@@ -156,6 +157,10 @@ async function listInventory(ctx) {
   // 说明：sale_price / purchase_price / product_spec / product_unit 是比 Python 版
   // 多出来的字段（超集）。移动端要在同一个列表里同时看到「库存 + 价格」，
   // 否则得再发一次商品请求再前端合并。桌面端不使用这些字段，不受影响。
+  //
+  // purchase_price 受 product:cost 权限控制：销售员默认看不到进价，
+  // 这里直接返回 null（不是靠前端隐藏）。
+  const showCost = canSeeCost(ctx.perms)
   const items = rows.map((r) => ({
     id: r.id,
     product_id: r.product_id,
@@ -167,7 +172,7 @@ async function listInventory(ctx) {
     product_spec: r.product_spec ?? null,
     product_unit: r.product_unit ?? null,
     sale_price: r.sale_price ?? 0,
-    purchase_price: r.purchase_price ?? 0,
+    purchase_price: showCost ? r.purchase_price ?? 0 : null,
     warehouse_name: r.warehouse_name ?? null,
     min_stock: r.min_stock ?? 0,
     low: (r.quantity ?? 0) <= (r.min_stock ?? 0),

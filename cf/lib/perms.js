@@ -66,3 +66,17 @@ export function needText(required) {
   const list = Array.isArray(required) ? required : [required]
   return `权限不足，需要：${list.join(' 或 ')}`
 }
+
+/** 成本价（采购价）可见性权限码 */
+export const PRODUCT_COST_PERM = 'product:cost'
+
+/**
+ * 是否允许看到成本价（采购价）。
+ *
+ * 销售员默认没有这个权限 —— 报价时不该看到进价，否则等于把底价交出去。
+ * 这是**数据层**的拦截：没有权限时后端直接不返回 purchase_price，
+ * 而不是靠前端藏起来（前端藏了，F12 看接口照样能拿到）。
+ */
+export function canSeeCost(perms) {
+  return hasPerm(perms && perms.codes, PRODUCT_COST_PERM)
+}

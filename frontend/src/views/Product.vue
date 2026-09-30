@@ -47,7 +47,7 @@
         <el-table-column prop="sku" label="商品编码" width="140" show-overflow-tooltip />
         <el-table-column prop="spec" label="规格" min-width="160" show-overflow-tooltip />
         <el-table-column prop="unit" label="单位" width="70" align="center" />
-        <el-table-column prop="purchase_price" label="采购价" width="100" align="right" />
+        <el-table-column v-if="canSeeCost" prop="purchase_price" label="采购价" width="100" align="right" />
         <el-table-column prop="sale_price" label="销售价" width="100" align="right" />
         <el-table-column prop="min_stock" label="最低库存" width="90" align="center" />
         <el-table-column prop="status" label="状态" width="80" align="center">
@@ -178,12 +178,12 @@
           </div>
         </el-form-item>
         <el-row :gutter="20">
-          <el-col :span="12">
+          <el-col v-if="canSeeCost" :span="12">
             <el-form-item label="采购价">
               <el-input-number v-model="productForm.purchase_price" :precision="2" :min="0" style="width: 100%" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
+          <el-col :span="canSeeCost ? 12 : 24">
             <el-form-item label="销售价">
               <el-input-number v-model="productForm.sale_price" :precision="2" :min="0" style="width: 100%" />
             </el-form-item>
@@ -205,12 +205,17 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../api/modules'
 import { getProducts, createProduct, updateProduct, deleteProduct, uploadProductImage } from '../api/modules'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { confirmDelete } from '../utils/confirm'
+import { useUserStore } from '../store/user'
+
+const userStore = useUserStore()
+/** 成本价（采购价）需要 product:cost 权限；销售员默认没有，后端也不返回该字段 */
+const canSeeCost = computed(() => userStore.hasPermission('product:cost'))
 
 // 分类相关
 const categoryLoading = ref(false)

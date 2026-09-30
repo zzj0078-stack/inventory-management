@@ -4,7 +4,7 @@
  */
 
 import { bad, notFound, notImplemented, ok, json, paginated, paginationOf, intParam, boolParam, likeArg } from '../lib/http.js'
-import { nowLocal, isoOf } from '../lib/time.js'
+import { nowLocal, isoOf, dateStamp } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
 
 /** 这些字段允许为空，空串要转成 NULL（sku 有唯一索引，多条空串会违反约束） */
@@ -382,9 +382,93 @@ async function remove(ctx) {
   return ok('删除成功')
 }
 
+// ---------------- 商品图片上传（R2）----------------
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+  'image/bmp',
+])
+
+const IMAGE_EXT_BY_TYPE = {
+  'image/jpeg': '.jpg',
+  'image/png': '.png',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/bmp': '.bmp',
+}
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024 // 5 MB
+
+function randomHex(bytes) {
+  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * 上传商品图片，返回可访问的相对 URL。
+ *
+ * 对应 backend/app/api/products.py::upload_product_image。
+ * Workers 没有文件系统，图片存 Cloudflare KV（binding IMAGES）。
+ *
+ * 为什么用 KV 而不是 R2：R2 需要先在控制台「启用」（且要绑支付方式），
+ * KV 开箱即用、免费额度对 20 人内部系统绰绰有余（单值上限 25 MiB）。
+ *
+ * key 用 products/<名>，对外 URL 仍是 /uploads/products/<名> —— 与 Python 版
+ * 完全一致，历史 image_url 值无需改动，前端一行都不用改。
+ */
 async function uploadImage(ctx) {
-  // Cloudflare Workers 没有文件系统；图片需改用 R2 存储，属于阶段 2 的工作
-  notImplemented('图片上传尚未移植到 Cloudflare（需改用 R2 存储）。可先填写外链图片地址。')
+  const { request, env, db } = ctx
+
+  const store = env.IMAGES
+  if (!store) {
+    notImplemented('图片存储未配置：缺少 KV 绑定 IMAGES（见 wrangler.toml）')
+  }
+
+  const ct = (request.headers.get('Content-Type') || '').toLowerCase()
+  if (!ct.includes('multipart/form-data')) {
+    bad('请以 multipart/form-data 上传文件')
+  }
+
+  let form
+  try {
+    form = await request.formData()
+  } catch {
+    bad('无法解析上传内容')
+  }
+
+  const file = form.get('file')
+  if (!file || typeof file === 'string') bad('未收到上传文件（字段名应为 file）')
+
+  const type = String(file.type || '').toLowerCase()
+  if (!ALLOWED_IMAGE_TYPES.has(type)) {
+    bad(`不支持的图片格式：${type || '未知'}，仅支持 JPG / PNG / GIF / WEBP / BMP`)
+  }
+
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  if (!bytes.length) bad('文件内容为空')
+  if (bytes.length > MAX_IMAGE_BYTES) {
+    bad(`图片不能超过 5 MB（当前 ${(bytes.length / 1024 / 1024).toFixed(1)} MB）`)
+  }
+
+  // 扩展名：优先用原文件名，非法则按 MIME 推断
+  const origName = String(file.name || '')
+  let ext = (origName.match(/\.[A-Za-z0-9]+$/) || [''])[0].toLowerCase()
+  if (!['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
+    ext = IMAGE_EXT_BY_TYPE[type] || '.jpg'
+  }
+
+  const name = `${dateStamp(env)}_${randomHex(6)}${ext}`
+  const key = `products/${name}`
+
+  // KV 没有 httpMetadata，类型信息放进 metadata
+  await store.put(key, bytes, { metadata: { contentType: type, size: bytes.length } })
+  await logOp(db, ctx.user, '商品管理', '上传图片', name, `${bytes.length} bytes`)
+
+  return json({ url: `/uploads/${key}`, name, size: bytes.length })
 }
 
 export const routes = [

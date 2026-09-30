@@ -14,7 +14,7 @@ Cloudflare Pages Functions / Workers 跑的是 **JavaScript/WASM**，
 | 后端 | FastAPI + SQLAlchemy | Pages Functions（`functions/api/[[route]].js`） |
 | 数据库 | `backend/inventory.db`（文件） | Cloudflare D1（SQLite 兼容） |
 | 前端 | 不变，同一份 Vue 构建产物 | 不变 |
-| 图片上传 | 本地 `/uploads` 目录 | ⚠ 待改 R2（阶段 2） |
+| 图片上传 | 本地 `/uploads` 目录 | Cloudflare **KV**（binding `IMAGES`） |
 
 原有 FastAPI 后端**完整保留**在 `backend/`，本地开发/回退仍可用。
 
@@ -174,7 +174,7 @@ wrangler pages dev --port 8788
 
 | 项 | 说明 |
 |---|---|
-| 商品图片上传改 R2 | Workers 没有文件系统，当前返回 501，商品图暂用外链地址 |
+| ~~商品图片上传改 R2~~ | **已完成**：Workers 没有文件系统，改用 Cloudflare KV 存储（见下文「商品图片上传」） |
 
 ## 接口数量
 
@@ -187,6 +187,70 @@ wrangler pages dev --port 8788
 - `GET /api/ext/sale-returns/{id}`、`GET /api/ext/purchase-returns/{id}` —— **2 个退货详情接口**（Python 版没有，前端编辑/打印需要）
 - 导出按 kind 拆成 6 条独立路由 —— 这样**每种导出能各自声明权限**
   （对应 Python 的 `EXPORT_PERM`，而不是一条笼统的路由）
+
+---
+
+## 商品图片上传（Cloudflare KV）
+
+Workers **没有文件系统**，图片必须放对象存储。原计划用 R2，但 R2 需要先在
+控制台「启用」（还要绑支付方式）；**KV 开箱即用**，免费额度对 20 人内部系统
+绰绰有余，所以改用 KV。
+
+| 项 | 值 |
+|---|---|
+| 绑定名 | `IMAGES` |
+| 命名空间 | `inventory-images` / `44155434db3642028dee0c02106f7cce` |
+| 单值上限 | 25 MiB（本项目接口限制 **5 MB**） |
+| 免费额度 | 1 GB 存储 / 10 万次读 / 1000 次写 每天 |
+| 存储 key | `products/<yyyymmdd>_<12位随机hex><ext>` |
+| 对外 URL | `/uploads/products/<名>` |
+
+**URL 与 Python 版完全一致** —— 历史 `image_url` 值无需改动，前端一行都不用改。
+
+### 为什么走 Function 而不是对象存储的公开域名
+
+`functions/uploads/[[path]].js` 从 KV 读出来再返回：
+
+- **同源**，前端 `<img src="/uploads/...">` 直接可用，没有跨域问题
+- 不用绑自定义域名，也不用开任何「公开访问」
+- 可以自己加 `Cache-Control` 与 `ETag`
+
+图片 URL 不需要登录即可访问（`<img>` 不会带 Authorization 头），
+但文件名含 **12 位随机 hex**，不可枚举 —— 相当于能力型 URL。
+
+### 接口行为
+
+```
+POST /api/products/upload-image   （multipart/form-data，字段名 file）
+```
+
+| 校验 | 行为 |
+|---|---|
+| 格式 | 仅 JPG / PNG / GIF / WEBP / BMP，否则 400 并列出允许格式 |
+| 大小 | ≤ 5 MB，超出提示当前大小 |
+| 空文件 | 400 |
+| 缺 `file` 字段 | 400 并提示字段名 |
+| 未登录 | 401 |
+
+扩展名优先取原文件名，非法（如无扩展名）则按 MIME 推断。
+
+**验证脚本**（26 项断言）：
+
+```bash
+# 本地（miniflare 模拟 KV，免账号）
+wrangler pages dev --port 8788 --kv IMAGES
+node cf/verify-upload.mjs
+
+# 线上
+node cf/verify-upload.mjs https://inventory-b4k.pages.dev admin 密码
+```
+
+### 注意事项
+
+- KV 是**最终一致**的：写入后在极短时间内（通常毫秒级同区域）可读。
+  文件名每次都不一样，所以不会出现「读到旧图」的问题。
+- **删除商品不会删除对应图片**（与 Python 版一致）—— 避免多商品共用同一图片时误删。
+  需要清理时用 `wrangler kv key delete --namespace-id <id> --remote <key>`。
 
 ---
 
@@ -257,11 +321,11 @@ node cf/smoke-test.mjs https://inventory-b4k.pages.dev admin 你的密码
 SMOKE_USER=xxx SMOKE_PASS=yyy node cf/smoke-test.mjs https://inventory-b4k.pages.dev
 ```
 
-**333 项检查**，覆盖：健康检查 / 鉴权 / 权限 / 角色 / 用户 / 分类 / 商品 / 客户 /
+**338 项检查**，覆盖：健康检查 / 鉴权 / 权限 / 角色 / 用户 / 分类 / 商品 / 客户 /
 供应商 / 仓库 / 库存 / 采购单全流程（含价内税、分批收货、超收拦截）/ 销售单全流程
 （含库存不足保护）/ 库存流水 / 调拨 / 盘点 / 删除保护 / 权限边界（403）/
 销售退货（可退查询、超退拦截、部分→整单状态流转、作废回退）/ 采购退货 /
-收付款四象限凭证与凭证号 / 应收应付公式自洽性 / 首页看板与销售日报 / 报表×4 / 操作日志 / 数据自检 / CSV 导出×6（含 BOM 字节校验）。
+收付款四象限凭证与凭证号 / 应收应付公式自洽性 / 首页看板与销售日报 / 报表×4 / 操作日志 / 数据自检 / CSV 导出×6（含 BOM 字节校验）/ **商品图片上传**（KV 存储，含回读字节比对）。
 
 > ⚠ 线上如果已经按安全建议改过 admin 密码，必须传入新密码，
 > 否则登录 401 是预期行为，不是故障。
@@ -359,5 +423,5 @@ node cf/verify-routes.mjs https://inventory-b4k.pages.dev
 | **`_redirects` 会不会吞掉 API** | 不会。Pages Functions 优先于 `_redirects`，已验证 `/api/*` 仍返回 JSON |
 | **D1 清理测试数据要讲外键顺序** | 顺序错会整批回滚（`FOREIGN KEY constraint failed`），且报错不指出是哪条语句 |
 | `PRAGMA` 无效 | D1 托管 WAL / busy_timeout，代码里已去除 |
-| 没有文件系统 | 商品图片上传需要 R2，当前返回 501 |
+| 没有文件系统 | 图片存 Cloudflare KV（binding `IMAGES`），见「商品图片上传」 |
 | D1 无交互式事务 | 只能 `batch()`；库存已重构为「只读规划 + 原子批提交」，见上文 |

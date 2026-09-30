@@ -1089,8 +1089,38 @@ async function main() {
     check('采购导出状态显示「部分退货」', prows[1]?.[3] === '部分退货', prows[1]?.[3])
   }
 
+  // ---------------- 商品图片上传 ----------------
+  section('29. 商品图片上传（KV 存储）')
+  {
+    const png = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
+      'base64'
+    )
+    const fd = new FormData()
+    fd.append('file', new Blob([png], { type: 'image/png' }), 'smoke.png')
+    const res = await fetch(`${BASE}/api/products/upload-image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${T}` },
+      body: fd,
+    })
+    const body = await res.json().catch(() => null)
+    check('上传图片 200', res.status === 200, `status=${res.status} ${body?.detail || ''}`)
+    check('返回 /uploads/products/ URL',
+      typeof body?.url === 'string' && body.url.startsWith('/uploads/products/'), body?.url)
+    check('文件名格式 yyyymmdd_12hex.ext', /^\d{8}_[0-9a-f]{12}\.png$/.test(body?.name || ''), body?.name)
+
+    if (body?.url) {
+      const got = await fetch(BASE + body.url)
+      const bytes = Buffer.from(await got.arrayBuffer())
+      check('图片可回读且字节一致', got.status === 200 && bytes.equals(png),
+        `status=${got.status} ${bytes.length}/${png.length}`)
+      check('回读 Content-Type 正确',
+        (got.headers.get('content-type') || '').includes('image/png'), got.headers.get('content-type'))
+    }
+  }
+
   // ---------------- 清理 ----------------
-  section('29. 尽力清理（收尾由 cf/smoke-cleanup.sql 完成）')
+  section('30. 尽力清理（收尾由 cf/smoke-cleanup.sql 完成）')
   {
     // 已收货/已发货的单据接口不允许删除，且商品有库存时也不能删，
     // 这些残留由 cf/smoke-cleanup.sql 用 SQL 彻底清掉。

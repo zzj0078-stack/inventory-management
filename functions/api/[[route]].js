@@ -86,10 +86,14 @@ function clientIp(request) {
 
 async function readBody(request) {
   if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'DELETE') {
-    // DELETE 可能带 body（本项目没有），但查询参数仍是主要来源
-    if (request.method === 'DELETE') return null
     return null
   }
+
+  // 只预读 JSON。multipart/form-data（图片上传）必须留给 handler 自己
+  // 调 request.formData()，否则 body 被这里读掉就再也解析不出来了。
+  const ct = (request.headers.get('Content-Type') || '').toLowerCase()
+  if (!ct.includes('application/json')) return null
+
   const text = await request.text()
   if (!text) return null
   try {

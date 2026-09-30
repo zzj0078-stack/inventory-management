@@ -24,6 +24,15 @@ binding = "DB"
 database_name = "inventory"
 database_id = "848e0f62-70d6-4d4a-9cb5-d55147f6394e"
 
+# 商品图片存储。
+#   Workers 没有文件系统，图片必须放对象存储。
+#   R2 需要先在控制台「启用」（还要绑支付方式），KV 不需要，所以用 KV。
+#   上限：单值 25 MiB、免费额度 1 GB 存储 / 10 万次读 / 1000 次写每天。
+#   对外 URL 仍是 /uploads/products/<名>，与 Python 版一致，前端零改动。
+[[kv_namespaces]]
+binding = "IMAGES"
+id = "44155434db3642028dee0c02106f7cce"
+
 [vars]
 # 业务时区（与 backend/app/core/timeutil.py 的 APP_TIMEZONE 保持一致）
 APP_TIMEZONE = "Asia/Shanghai"

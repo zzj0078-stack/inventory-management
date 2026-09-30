@@ -24,6 +24,9 @@ import { routes as productRoutes } from '../../cf/routes/products.js'
 import { routes as customerRoutes } from '../../cf/routes/customers.js'
 import { routes as supplierRoutes } from '../../cf/routes/suppliers.js'
 import { routes as inventoryRoutes } from '../../cf/routes/inventory.js'
+import { routes as purchaseRoutes } from '../../cf/routes/purchase.js'
+import { routes as salesRoutes } from '../../cf/routes/sales.js'
+import { routes as stockRoutes } from '../../cf/routes/stock.js'
 
 const ROUTES = [
   ...authRoutes,
@@ -32,19 +35,17 @@ const ROUTES = [
   ...customerRoutes,
   ...supplierRoutes,
   ...inventoryRoutes,
+  ...purchaseRoutes,
+  ...salesRoutes,
+  ...stockRoutes,
 ]
 
 /** 尚未移植的模块（按路径区分，返回 501 时告知阶段） */
 const PENDING = [
-  { re: /^\/api\/purchase(\/|$)/, module: '采购单', phase: '阶段 2' },
-  { re: /^\/api\/sales(\/|$)/, module: '销售单', phase: '阶段 2' },
   { re: /^\/api\/ext\/sale-returns/, module: '销售退货', phase: '阶段 3' },
   { re: /^\/api\/ext\/purchase-returns/, module: '采购退货', phase: '阶段 3' },
   { re: /^\/api\/ext\/payments/, module: '收付款', phase: '阶段 3' },
   { re: /^\/api\/ext\/receivables/, module: '应收应付', phase: '阶段 3' },
-  { re: /^\/api\/ext\/stock-transfers/, module: '库存调拨', phase: '阶段 2' },
-  { re: /^\/api\/ext\/stock-checks/, module: '库存盘点', phase: '阶段 2' },
-  { re: /^\/api\/ext\/stock-logs/, module: '出入库明细', phase: '阶段 2' },
   { re: /^\/api\/ext\/reports/, module: '报表统计', phase: '阶段 4' },
   { re: /^\/api\/ext\/logs/, module: '操作日志', phase: '阶段 4' },
   { re: /^\/api\/ext\/dashboard/, module: '首页看板', phase: '阶段 4' },

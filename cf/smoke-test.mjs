@@ -281,18 +281,30 @@ async function main() {
     const r1c = await req('GET', '/api/ext/stock-logs', { token: T })
     check('库存流水已实现 → 200', r1c.status === 200, `status=${r1c.status}`)
 
-    const r2 = await req('GET', '/api/ext/payments', { token: T })
-    check('收付款（阶段3）→ 501', r2.status === 501, `status=${r2.status}`)
+    const r1d = await req('GET', '/api/ext/payments', { token: T })
+    check('收付款已实现 → 200', r1d.status === 200, `status=${r1d.status}`)
+
+    const r1e = await req('GET', '/api/ext/sale-returns', { token: T })
+    check('销售退货已实现 → 200', r1e.status === 200, `status=${r1e.status}`)
+
+    const r1f = await req('GET', '/api/ext/receivables', { token: T })
+    check('应收应付已实现 → 200', r1f.status === 200, `status=${r1f.status}`)
+
+    const r2 = await req('GET', '/api/ext/reports/sales', { token: T })
+    check('报表（阶段4）→ 501', r2.status === 501, `status=${r2.status}`)
     check('501 提示包含阶段信息', /阶段/.test(r2.data?.detail || ''), r2.data?.detail)
 
     const r3 = await req('GET', '/api/nonexistent-endpoint', { token: T })
     check('未知接口 → 404', r3.status === 404, `status=${r3.status}`)
 
-    const r4 = await req('GET', '/api/ext/reports/sales', { token: T })
-    check('报表（阶段4）→ 501', r4.status === 501, `status=${r4.status}`)
+    const r4 = await req('GET', '/api/ext/logs', { token: T })
+    check('操作日志（阶段4）→ 501', r4.status === 501, `status=${r4.status}`)
 
     const r5 = await req('GET', '/api/ext/dashboard', { token: T })
     check('首页看板（阶段4）→ 501', r5.status === 501, `status=${r5.status}`)
+
+    const r6 = await req('GET', '/api/ext/export/sales', { token: T })
+    check('CSV 导出（阶段4）→ 501', r6.status === 501, `status=${r6.status}`)
   }
 
   // ---------------- 采购单全流程 ----------------
@@ -614,8 +626,279 @@ async function main() {
     if (roleId) await req('DELETE', `/api/auth/roles/${roleId}`, { token: T })
   }
 
+  // ---------------- 库存查询helper（阶段 3 用）----------------
+  const stockOf = async (warehouseId) => {
+    const r = await req('GET', `/api/inventory?warehouse_id=${warehouseId}`, { token: T })
+    return (r.data?.items || []).find((x) => x.product_id === productId)?.quantity
+  }
+
+  // ---------------- 销售退货 ----------------
+  section('19. 销售退货：可退查询 → 部分退货 → 作废回退 → 整单退货')
+  let sr1 = null
+  let sr2 = null
+  let sr3 = null
+  {
+    const before = await stockOf(whId)
+
+    const r1 = await req('GET', '/api/ext/sale-returns/returnable', { token: T })
+    check('可退原单列表 200', r1.status === 200, `status=${r1.status}`)
+    const target = (r1.data?.items || []).find((o) => o.id === salesId)
+    check('已发货销售单出现在可退列表', !!target, `total=${r1.data?.total}`)
+    check('可退件数 = 4', target?.returnable_quantity === 4, String(target?.returnable_quantity))
+
+    const r2 = await req('GET', `/api/ext/sale-returns/available/${salesId}`, { token: T })
+    check('可退明细 200', r2.status === 200, `status=${r2.status}`)
+    const it = (r2.data?.items || [])[0]
+    check('可退数量 = 4', it?.available_quantity === 4, String(it?.available_quantity))
+    check('带出原成交价 20', it?.price === 20, String(it?.price))
+    check('带出客户名', r2.data?.customer_name === '__冒烟测试客户', r2.data?.customer_name)
+
+    const r3 = await req('POST', '/api/ext/sale-returns', {
+      token: T,
+      body: { customer_id: customerId, items: [{ product_id: productId, quantity: 1, price: 20 }] },
+    })
+    check('不关联原单 → 400', r3.status === 400, `status=${r3.status}`)
+    check('提示「必须关联原单」', /必须关联原单/.test(r3.data?.detail || ''), r3.data?.detail)
+
+    const r4 = await req('POST', '/api/ext/sale-returns', {
+      token: T,
+      body: { sales_order_id: salesId, customer_id: customerId, items: [{ product_id: productId, quantity: 99, price: 20 }] },
+    })
+    check('超退 → 400', r4.status === 400, `status=${r4.status}`)
+    check('超退提示「可退数量仅 4」', /可退数量仅 4/.test(r4.data?.detail || ''), r4.data?.detail)
+
+    // 退 2
+    const r5 = await req('POST', '/api/ext/sale-returns', {
+      token: T,
+      body: {
+        sales_order_id: salesId,
+        customer_id: customerId,
+        reason: '__冒烟测试退货',
+        items: [{ product_id: productId, quantity: 2, price: 20 }],
+      },
+    })
+    check('新增销售退货 200', r5.status === 200, `status=${r5.status} ${r5.data?.detail || ''}`)
+    sr1 = r5.data?.id
+    check('单号格式 SR+yyyymmdd+4位', /^SR\d{12}$/.test(r5.data?.return_no || ''), r5.data?.return_no)
+
+    const r6 = await req('GET', `/api/ext/sale-returns/available/${salesId}`, { token: T })
+    check('待审核退货已占额度（剩余可退 2）', (r6.data?.items || [])[0]?.available_quantity === 2,
+      String((r6.data?.items || [])[0]?.available_quantity))
+
+    const rl = await req('GET', '/api/ext/sale-returns?keyword=' + encodeURIComponent('SR'), { token: T })
+    check('退货列表带 summary 汇总', typeof rl.data?.summary?.all === 'number', JSON.stringify(rl.data?.summary))
+    check('summary.active 只算已审核/已退货', rl.data?.summary?.active === 0, String(rl.data?.summary?.active))
+
+    await req('PUT', `/api/ext/sale-returns/${sr1}/approve`, { token: T })
+    const r7 = await req('PUT', `/api/ext/sale-returns/${sr1}/receive`, { token: T })
+    check('销售退货入库 200', r7.status === 200, `status=${r7.status} ${r7.data?.detail || ''}`)
+
+    const o1 = await req('GET', `/api/sales/${salesId}`, { token: T })
+    check('原单状态 → 部分退货(5)', o1.data?.status === 5, `status=${o1.data?.status} ${o1.data?.status_text}`)
+
+    check('退货入库后库存 +2', (await stockOf(whId)) === before + 2, `${before} -> ${await stockOf(whId)}`)
+
+    // 退剩余 2 并作废 → 原单应回到「部分退货」而不是「已退货」
+    const r8 = await req('POST', '/api/ext/sale-returns', {
+      token: T,
+      body: { sales_order_id: salesId, customer_id: customerId, items: [{ product_id: productId, quantity: 2, price: 20 }] },
+    })
+    sr2 = r8.data?.id
+    await req('PUT', `/api/ext/sale-returns/${sr2}/approve`, { token: T })
+    const r9 = await req('PUT', `/api/ext/sale-returns/${sr2}/cancel`, { token: T })
+    check('退货单作废 200', r9.status === 200, `status=${r9.status}`)
+
+    const o2 = await req('GET', `/api/sales/${salesId}`, { token: T })
+    check('作废后原单仍为部分退货(5)', o2.data?.status === 5, `status=${o2.data?.status}`)
+
+    // 再退 2 并入库 → 原单应为「已退货」
+    const r10 = await req('POST', '/api/ext/sale-returns', {
+      token: T,
+      body: { sales_order_id: salesId, customer_id: customerId, items: [{ product_id: productId, quantity: 2, price: 20 }] },
+    })
+    sr3 = r10.data?.id
+    await req('PUT', `/api/ext/sale-returns/${sr3}/approve`, { token: T })
+    await req('PUT', `/api/ext/sale-returns/${sr3}/receive`, { token: T })
+
+    const o3 = await req('GET', `/api/sales/${salesId}`, { token: T })
+    check('全部退回后原单 → 已退货(6)', o3.data?.status === 6, `status=${o3.data?.status} ${o3.data?.status_text}`)
+
+    const r11 = await req('POST', '/api/ext/sale-returns', {
+      token: T,
+      body: { sales_order_id: salesId, customer_id: customerId, items: [{ product_id: productId, quantity: 1, price: 20 }] },
+    })
+    check('退满后再退 → 400', r11.status === 400, `status=${r11.status}`)
+
+    const rd = await req('GET', `/api/ext/sale-returns/${sr1}`, { token: T })
+    check('退货详情 200', rd.status === 200, `status=${rd.status}`)
+    check('详情带来源单号', rd.data?.source_order_no === o3.data?.order_no, rd.data?.source_order_no)
+    check('详情带商品名', rd.data?.items?.[0]?.product_name === '__冒烟测试商品', rd.data?.items?.[0]?.product_name)
+  }
+
+  // ---------------- 采购退货 ----------------
+  section('20. 采购退货：可退查询 → 部分退货 → 出库')
+  {
+    const before = await stockOf(whId)
+
+    const r1 = await req('GET', '/api/ext/purchase-returns/returnable', { token: T })
+    check('可退原单列表 200', r1.status === 200, `status=${r1.status}`)
+    const target = (r1.data?.items || []).find((o) => o.id === purchaseId)
+    check('已收货采购单出现在可退列表', !!target, `total=${r1.data?.total}`)
+    check('可退件数 = 10', target?.returnable_quantity === 10, String(target?.returnable_quantity))
+
+    const r2 = await req('GET', `/api/ext/purchase-returns/available/${purchaseId}`, { token: T })
+    check('可退明细 200', r2.status === 200, `status=${r2.status}`)
+    const it = (r2.data?.items || [])[0]
+    check('可退数量 = 10', it?.available_quantity === 10, String(it?.available_quantity))
+    check('带出原成交价 10.5', it?.price === 10.5, String(it?.price))
+    check('带出供应商名', r2.data?.supplier_name === '__冒烟测试供应商', r2.data?.supplier_name)
+
+    const r3 = await req('POST', '/api/ext/purchase-returns', {
+      token: T,
+      body: { supplier_id: supplierId, items: [{ product_id: productId, quantity: 1, price: 10.5 }] },
+    })
+    check('不关联原单 → 400', r3.status === 400, `status=${r3.status}`)
+
+    const r4 = await req('POST', '/api/ext/purchase-returns', {
+      token: T,
+      body: { purchase_order_id: purchaseId, supplier_id: supplierId, items: [{ product_id: productId, quantity: 99, price: 10.5 }] },
+    })
+    check('超退 → 400', r4.status === 400, `status=${r4.status}`)
+    check('超退提示「可退数量仅 10」', /可退数量仅 10/.test(r4.data?.detail || ''), r4.data?.detail)
+
+    const r5 = await req('POST', '/api/ext/purchase-returns', {
+      token: T,
+      body: {
+        purchase_order_id: purchaseId,
+        supplier_id: supplierId,
+        reason: '__冒烟测试退货',
+        items: [{ product_id: productId, quantity: 3, price: 10.5 }],
+      },
+    })
+    check('新增采购退货 200', r5.status === 200, `status=${r5.status} ${r5.data?.detail || ''}`)
+    const pr1 = r5.data?.id
+    check('单号格式 PR+yyyymmdd+4位', /^PR\d{12}$/.test(r5.data?.return_no || ''), r5.data?.return_no)
+
+    await req('PUT', `/api/ext/purchase-returns/${pr1}/approve`, { token: T })
+    const r6 = await req('PUT', `/api/ext/purchase-returns/${pr1}/ship`, { token: T })
+    check('采购退货出库 200', r6.status === 200, `status=${r6.status} ${r6.data?.detail || ''}`)
+
+    const o1 = await req('GET', `/api/purchase/${purchaseId}`, { token: T })
+    check('原单状态 → 部分退货(5)', o1.data?.status === 5, `status=${o1.data?.status} ${o1.data?.status_text}`)
+
+    check('退货出库后库存 −3', (await stockOf(whId)) === before - 3, `${before} -> ${await stockOf(whId)}`)
+
+    const prl = await req('GET', '/api/ext/purchase-returns?status=2', { token: T })
+    check('按状态筛选退货单', (prl.data?.items || []).length > 0, `total=${prl.data?.total}`)
+    check('状态文案 = 已退货', prl.data?.items?.[0]?.status_text === '已退货', prl.data?.items?.[0]?.status_text)
+  }
+
+  // ---------------- 收付款 + 凭证 ----------------
+  section('21. 收付款：四象限凭证 + 编辑 + 删除')
+  let payRecvCust = null
+  let payRecvSup = null
+  let payPaySup = null
+  let payRefundCust = null
+  {
+    const mk = async (label, body, wants) => {
+      const r = await req('POST', '/api/ext/payments', { token: T, body })
+      check(`${label} 200`, r.status === 200, `status=${r.status} ${r.data?.detail || ''}`)
+      if (r.status !== 200) return null
+      for (const [k, v] of Object.entries(wants)) {
+        check(`${label} · ${k}`, r.data?.[k] === v, `${r.data?.[k]}（期望 ${v}）`)
+      }
+      return r.data
+    }
+
+    // 收款 · 客户 → 借 银行存款 / 贷 应收账款
+    const c = await mk('收客户货款', {
+      type: 1, partner_type: 'customer', partner_id: customerId, amount: 100,
+      payment_method: '银行转账', voucher_date: '2026-09-30',
+    }, { credit_account: '应收账款', debit_account: '银行存款' })
+    payRecvCust = c?.id
+    check('凭证号格式 记-YYYY-MM-0001', /^记-\d{4}-\d{2}-\d{4}$/.test(c?.voucher_no || ''), c?.voucher_no)
+    check('摘要 = 收<客户名>货款', c?.summary === '收__冒烟测试客户货款', c?.summary)
+
+    // 收款 · 供应商 → 借 银行存款 / 贷 应付账款
+    const s = await mk('收供应商退款', {
+      type: 1, partner_type: 'supplier', partner_id: supplierId, amount: 50, payment_method: '现金',
+    }, { credit_account: '应付账款', debit_account: '库存现金' })
+    payRecvSup = s?.id
+
+    // 付款 · 供应商 → 借 应付账款 / 贷 银行存款
+    const p = await mk('付供应商货款', {
+      type: 2, partner_type: 'supplier', partner_id: supplierId, amount: 80, payment_method: '银行转账',
+    }, { debit_account: '应付账款', credit_account: '银行存款' })
+    payPaySup = p?.id
+    check('摘要 = 付<供应商名>货款', p?.summary === '付__冒烟测试供应商货款', p?.summary)
+
+    // 付款 · 客户 → 借 应收账款 / 贷 银行存款
+    const rc = await mk('退款给客户', {
+      type: 2, partner_type: 'customer', partner_id: customerId, amount: 30, payment_method: '银行转账',
+    }, { debit_account: '应收账款', credit_account: '银行存款' })
+    payRefundCust = rc?.id
+
+    const bad1 = await req('POST', '/api/ext/payments', {
+      token: T,
+      body: { type: 1, partner_type: 'customer', partner_id: customerId, amount: 0 },
+    })
+    check('金额 0 → 400', bad1.status === 400, `status=${bad1.status}`)
+
+    const l = await req('GET', '/api/ext/payments', { token: T })
+    check('收付款列表 200', l.status === 200)
+    check('列表带往来单位名', (l.data?.items || []).some((x) => x.partner_name === '__冒烟测试客户'))
+    check('列表带凭证字段', !!((l.data?.items || [])[0]?.debit_account))
+
+    const l2 = await req('GET', '/api/ext/payments?type=1', { token: T })
+    check('按类型筛选（收款 2 笔）', (l2.data?.total || 0) >= 2, `total=${l2.data?.total}`)
+    check('筛选结果都是收款', (l2.data?.items || []).every((x) => x.type === 1))
+
+    // 编辑：改金额 → 摘要/借贷重算，凭证号保留
+    const u = await req('PUT', `/api/ext/payments/${payRecvCust}`, { token: T, body: { amount: 120 } })
+    check('编辑收付款 200', u.status === 200, `status=${u.status} ${u.data?.detail || ''}`)
+    check('凭证号保持不变', u.data?.voucher_no === c?.voucher_no, `${u.data?.voucher_no} vs ${c?.voucher_no}`)
+
+    const after = await req('GET', '/api/ext/payments', { token: T })
+    const edited = (after.data?.items || []).find((x) => x.id === payRecvCust)
+    check('编辑后金额 = 120', edited?.amount === 120, String(edited?.amount))
+    check('编辑后摘要重算（仍含客户名）', /__冒烟测试客户/.test(edited?.summary || ''), edited?.summary)
+
+    const del = await req('DELETE', `/api/ext/payments/${payRefundCust}`, { token: T })
+    check('删除收付款 200', del.status === 200, `status=${del.status}`)
+    const gone = await req('DELETE', `/api/ext/payments/${payRefundCust}`, { token: T })
+    check('重复删除 → 404', gone.status === 404, `status=${gone.status}`)
+    payRefundCust = null // 已删，后面应收应付公式要按实际算
+  }
+
+  // ---------------- 应收应付 ----------------
+  section('22. 应收应付公式')
+  {
+    const r = await req('GET', '/api/ext/receivables', { token: T })
+    check('应收应付 200', r.status === 200, `status=${r.status}`)
+    const d = r.data || {}
+
+    // 自洽性：公式两端必须一致（防止字段与公式脱节）
+    const expectRecv = d.sales_total - d.recv_from_customer + d.refund_to_customer - d.sale_returned
+    const expectPay = d.purchase_total - d.paid_to_supplier + d.refund_from_supplier - d.purchase_returned
+    check('应收 = 销售额 − 收客户货款 + 退款给客户 − 销售退货',
+      Math.abs(d.receivable - expectRecv) < 0.01, `${d.receivable} vs ${expectRecv}`)
+    check('应付 = 采购额 − 付供应商货款 + 收供应商退款 − 采购退货',
+      Math.abs(d.payable - expectPay) < 0.01, `${d.payable} vs ${expectPay}`)
+
+    // 具体数值：销售单 4×20=80；采购单 10×10.5+5=110
+    check('销售额 = 80', Math.abs(d.sales_total - 80) < 0.01, String(d.sales_total))
+    check('采购额 = 110', Math.abs(d.purchase_total - 110) < 0.01, String(d.purchase_total))
+    check('收客户货款 = 120（编辑后）', Math.abs(d.recv_from_customer - 120) < 0.01, String(d.recv_from_customer))
+    check('退款给客户 = 0（已删除）', Math.abs(d.refund_to_customer - 0) < 0.01, String(d.refund_to_customer))
+    check('付供应商货款 = 80', Math.abs(d.paid_to_supplier - 80) < 0.01, String(d.paid_to_supplier))
+    check('收供应商退款 = 50', Math.abs(d.refund_from_supplier - 50) < 0.01, String(d.refund_from_supplier))
+    check('销售退货 = 80（2+2 件 ×20）', Math.abs(d.sale_returned - 80) < 0.01, String(d.sale_returned))
+    check('采购退货 = 31.5（3 × 10.5）', Math.abs(d.purchase_returned - 31.5) < 0.01, String(d.purchase_returned))
+    check('兼容字段 received/paid', d.received === d.recv_from_customer && d.paid === d.paid_to_supplier)
+  }
+
   // ---------------- 清理 ----------------
-  section('18. 尽力清理（收尾由 cf/smoke-cleanup.sql 完成）')
+  section('23. 尽力清理（收尾由 cf/smoke-cleanup.sql 完成）')
   {
     // 已收货/已发货的单据接口不允许删除，且商品有库存时也不能删，
     // 这些残留由 cf/smoke-cleanup.sql 用 SQL 彻底清掉。

@@ -70,13 +70,25 @@ DELETE FROM operation_logs
 
 DELETE FROM sale_return_items
  WHERE return_id IN (
-   SELECT id FROM sale_returns
-    WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '__冒烟测试%')
+   SELECT r.id FROM sale_returns r
+    WHERE r.customer_id IN (SELECT id FROM customers WHERE name LIKE '__冒烟测试%')
+       OR r.reason LIKE '__冒烟测试%'
+       OR r.sales_order_id IN (
+            SELECT id FROM sales_orders
+             WHERE remark LIKE '__冒烟测试%'
+                OR customer_id IN (SELECT id FROM customers WHERE name LIKE '__冒烟测试%')
+          )
  )
  OR product_id IN (SELECT id FROM products WHERE name LIKE '__冒烟测试%');
 
 DELETE FROM sale_returns
- WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '__冒烟测试%');
+ WHERE customer_id IN (SELECT id FROM customers WHERE name LIKE '__冒烟测试%')
+    OR reason LIKE '__冒烟测试%'
+    OR sales_order_id IN (
+         SELECT id FROM sales_orders
+          WHERE remark LIKE '__冒烟测试%'
+             OR customer_id IN (SELECT id FROM customers WHERE name LIKE '__冒烟测试%')
+       );
 
 DELETE FROM sales_items
  WHERE order_id IN (
@@ -101,13 +113,25 @@ DELETE FROM operation_logs
 
 DELETE FROM purchase_return_items
  WHERE return_id IN (
-   SELECT id FROM purchase_returns
-    WHERE supplier_id IN (SELECT id FROM suppliers WHERE name LIKE '__冒烟测试%')
+   SELECT r.id FROM purchase_returns r
+    WHERE r.supplier_id IN (SELECT id FROM suppliers WHERE name LIKE '__冒烟测试%')
+       OR r.reason LIKE '__冒烟测试%'
+       OR r.purchase_order_id IN (
+            SELECT id FROM purchase_orders
+             WHERE remark LIKE '__冒烟测试%'
+                OR supplier_id IN (SELECT id FROM suppliers WHERE name LIKE '__冒烟测试%')
+          )
  )
  OR product_id IN (SELECT id FROM products WHERE name LIKE '__冒烟测试%');
 
 DELETE FROM purchase_returns
- WHERE supplier_id IN (SELECT id FROM suppliers WHERE name LIKE '__冒烟测试%');
+ WHERE supplier_id IN (SELECT id FROM suppliers WHERE name LIKE '__冒烟测试%')
+    OR reason LIKE '__冒烟测试%'
+    OR purchase_order_id IN (
+         SELECT id FROM purchase_orders
+          WHERE remark LIKE '__冒烟测试%'
+             OR supplier_id IN (SELECT id FROM suppliers WHERE name LIKE '__冒烟测试%')
+       );
 
 DELETE FROM purchase_items
  WHERE order_id IN (

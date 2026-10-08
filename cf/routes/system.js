@@ -624,6 +624,7 @@ async function exportCsv(ctx) {
       [`${label}\u5bf9\u8d26\u5355`, data.partner.name, '', '', '', '', '', ''],
       [
         ['\u8054\u7cfb\u4eba', data.partner.contact || '', '\u7535\u8bdd', data.partner.phone || '', '', '', '', ''],
+        ['\u5730\u5740', data.partner.address || '', '', '', '', '', '', ''],
         ['\u671f\u95f4', `${data.start || '\u4e0d\u9650'} ~ ${data.end || '\u4e0d\u9650'}`, '', '', '', '', '', ''],
         COLS,
         ['\u671f\u521d\u4f59\u989d', '', '', '', '', '', '', data.opening_balance],

@@ -67,6 +67,7 @@
             <span class="stmt-name">{{ data.partner.name }}</span>
             <span class="muted" v-if="data.partner.contact">　联系人：{{ data.partner.contact }}</span>
             <span class="muted" v-if="data.partner.phone">　电话：{{ data.partner.phone }}</span>
+            <span class="muted" v-if="data.partner.address">　地址：{{ data.partner.address }}</span>
           </div>
           <div class="muted">
             期间：{{ data.start || '不限' }} ~ {{ data.end || '不限' }}

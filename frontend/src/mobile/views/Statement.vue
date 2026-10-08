@@ -54,6 +54,9 @@
           <span v-if="data.partner.contact">{{ data.partner.contact }}</span>
           <span v-if="data.partner.phone"> · {{ data.partner.phone }}</span>
         </div>
+        <div v-if="data.partner.address" class="tiny muted-3 mt8">
+          地址：{{ data.partner.address }}
+        </div>
 
         <div class="stmt-grid mt12">
           <div class="stmt-cell">

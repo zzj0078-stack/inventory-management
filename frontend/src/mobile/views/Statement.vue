@@ -106,6 +106,18 @@
             <div class="tiny muted-3 mt8">共 {{ r.items_quantity }} 件</div>
           </div>
 
+          <!-- 本单的送货地址与接收人 -->
+          <div
+            v-if="r.delivery_address || r.receiver_name || r.receiver_phone"
+            class="tiny muted-3 mt8"
+          >
+            <div v-if="r.delivery_address">送货地址：{{ r.delivery_address }}</div>
+            <div>
+              <span v-if="r.receiver_name">接收人：{{ r.receiver_name }}</span>
+              <span v-if="r.receiver_phone">　{{ r.receiver_phone }}</span>
+            </div>
+          </div>
+
           <div class="between mt8">
             <span class="tiny muted-3">余额</span>
             <span class="num">{{ money0(r.balance) }}</span>

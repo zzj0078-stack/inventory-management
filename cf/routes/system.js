@@ -584,8 +584,8 @@ async function exportCsv(ctx) {
     )
   }
 
-  // 对账单：与页面同一份口径（复用 buildStatementData），
-  // 列与打印版一致；期初/合计/期末作为独立行，方便在 Excel 里直接核对。
+  // 对账单：与页面同一份口径（复用 buildStatementData）。
+  // 单据行带上本单的送货地址/接收人/接收人电话，对账时按单号就能看到货送到哪、谁收。
   if (kind === 'statement') {
     const side = url.searchParams.get('side') === 'supplier' ? 'supplier' : 'customer'
     const data = await buildStatementData(ctx, side)
@@ -599,11 +599,27 @@ async function exportCsv(ctx) {
       '\u589e\u52a0',
       '\u51cf\u5c11',
       '\u4f59\u989d',
+      '\u9001\u8d27\u5730\u5740',
+      '\u63a5\u6536\u4eba',
+      '\u63a5\u6536\u4eba\u7535\u8bdd',
     ]
-    const EIGHT = ['', '', '', '', '', '', '', '']
+    const N = COLS.length
+    // 抬头 / 合计这类行只有前几列有值，用空串补齐到 N 列
+    const blank = () => new Array(N).fill('')
     const put = (i, v) => {
-      const r = EIGHT.slice()
+      const r = blank()
       r[i] = v
+      return r
+    }
+    /** info 行：[标签, 值] 对，从第 0 列开始依次摆放 */
+    const infoRow = (pairs) => {
+      const r = blank()
+      pairs.forEach(([k, v], i) => {
+        if (i * 2 + 1 < N) {
+          r[i * 2] = k
+          r[i * 2 + 1] = v
+        }
+      })
       return r
     }
 
@@ -616,21 +632,46 @@ async function exportCsv(ctx) {
       Number(r.increase) || '',
       Number(r.decrease) || '',
       r.balance,
+      r.delivery_address || '',
+      r.receiver_name || '',
+      r.receiver_phone || '',
     ])
+
+    const footer = blank()
+    footer[6] = '\u672c\u671f\u5408\u8ba1'
+    footer[7] = data.total_increase
+    const footer2 = blank()
+    footer2[7] = data.total_decrease
+    const closing = put(7, data.closing_balance)
+    closing[0] = '\u671f\u672b\u4f59\u989d'
 
     return csvResponse(
       `statement_${side}_${ts}.csv`,
       // 第一行放抬头：CSV 里没有页眉，抬头只能作为首行存在
-      [`${label}\u5bf9\u8d26\u5355`, data.partner.name, '', '', '', '', '', ''],
+      (() => {
+        const r = blank()
+        r[0] = `${label}\u5bf9\u8d26\u5355`
+        r[1] = data.partner.name
+        return r
+      })(),
       [
-        ['\u8054\u7cfb\u4eba', data.partner.contact || '', '\u7535\u8bdd', data.partner.phone || '', '', '', '', ''],
-        ['\u5730\u5740', data.partner.address || '', '', '', '', '', '', ''],
-        ['\u671f\u95f4', `${data.start || '\u4e0d\u9650'} ~ ${data.end || '\u4e0d\u9650'}`, '', '', '', '', '', ''],
+        infoRow([
+          ['\u8054\u7cfb\u4eba', data.partner.contact || ''],
+          ['\u7535\u8bdd', data.partner.phone || ''],
+          ['\u5730\u5740', data.partner.address || ''],
+        ]),
+        infoRow([
+          [
+            '\u671f\u95f4',
+            `${data.start || '\u4e0d\u9650'} ~ ${data.end || '\u4e0d\u9650'}`,
+          ],
+        ]),
         COLS,
-        ['\u671f\u521d\u4f59\u989d', '', '', '', '', '', '', data.opening_balance],
+        put(7, data.opening_balance).map((v, i) => (i === 0 ? '\u671f\u521d\u4f59\u989d' : v)),
         ...body,
-        ['\u672c\u671f\u5408\u8ba1', '', '', '', '', data.total_increase, data.total_decrease, ''],
-        put(7, data.closing_balance).map((v, i) => (i === 0 ? '\u671f\u672b\u4f59\u989d' : v)),
+        footer,
+        footer2,
+        closing,
       ]
     )
   }

@@ -73,12 +73,15 @@ async function loadItemsByParent(db, itemTable, keyColumn, parentIds) {
  * 客户：增加 = 销售单 / 退款给客户；减少 = 收款 / 销售退货
  */
 async function customerRows(db, partnerId, fallbackDate) {
+  // 单据上带本单的送货地址与接收人：对账时要按单号看到"这单送到哪、谁收"
   const orders = await db.all(
-    `SELECT id, ${DATE_IN_ORDER} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec
+    `SELECT id, ${DATE_IN_ORDER} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec,
+            delivery_address, receiver_name, receiver_phone
        FROM sales_orders
       WHERE customer_id = ? AND status IN ${ORDER_ACTIVE}`,
     partnerId
   )
+  // 退货单没有收货信息（货是退回来的），这几项留空
   const returns = await db.all(
     `SELECT id, ${DATE_IN_RETURN} AS d, return_no AS doc_no, 0 AS inc, total_amount AS dec
        FROM sale_returns
@@ -114,8 +117,10 @@ async function customerRows(db, partnerId, fallbackDate) {
  * 供应商：增加 = 采购单 / 收供应商退款；减少 = 付款 / 采购退货
  */
 async function supplierRows(db, partnerId, fallbackDate) {
+  // 与销售侧同理：采购单带交货地址与接收人
   const orders = await db.all(
-    `SELECT id, ${DATE_IN_PURCHASE} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec
+    `SELECT id, ${DATE_IN_PURCHASE} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec,
+            delivery_address, receiver_name, receiver_phone
        FROM purchase_orders
       WHERE supplier_id = ? AND status IN ${ORDER_ACTIVE}`,
     partnerId
@@ -235,6 +240,12 @@ export async function buildStatementData(ctx, side) {
         .map((i) => `${i.product_name}×${i.quantity}${i.unit || ''}`)
         .join('、'),
       items_quantity: items.reduce((s, i) => s + Number(i.quantity || 0), 0),
+      // 本单的送货地址 / 接收人 / 接收人电话。
+      // 只有单据（销售单、采购单）有；收款、退货这些行为空。
+      // 对账时要按单号看到"这单送到哪、谁收"，所以放在行上而不是只放在抬头。
+      delivery_address: r.delivery_address || '',
+      receiver_name: r.receiver_name || '',
+      receiver_phone: r.receiver_phone || '',
     }
   })
 

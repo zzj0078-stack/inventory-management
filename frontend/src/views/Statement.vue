@@ -104,6 +104,19 @@
               <span v-else class="muted">-</span>
             </template>
           </el-table-column>
+          <!-- 本单的送货地址与接收人：按单号就能看出货送到哪、谁收 -->
+          <el-table-column label="送货地址 / 接收人" min-width="220">
+            <template #default="{ row }">
+              <div v-if="row.delivery_address || row.receiver_name || row.receiver_phone">
+                <div v-if="row.delivery_address">{{ row.delivery_address }}</div>
+                <div class="muted small">
+                  <span v-if="row.receiver_name">{{ row.receiver_name }}</span>
+                  <span v-if="row.receiver_phone">　{{ row.receiver_phone }}</span>
+                </div>
+              </div>
+              <span v-else class="muted">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="增加" width="120" align="right">
             <template #default="{ row }">
               <span v-if="Number(row.increase)" class="num inc">{{ money(row.increase) }}</span>

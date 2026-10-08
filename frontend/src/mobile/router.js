@@ -45,6 +45,7 @@ const routes = [
 
       { path: 'customers', name: 'customers', component: () => import('./views/Customers.vue'), meta: { title: '客户欠款' } },
       { path: 'suppliers', name: 'suppliers', component: () => import('./views/Suppliers.vue'), meta: { title: '采购欠款' } },
+      { path: 'statement', name: 'statement', component: () => import('./views/Statement.vue'), meta: { title: '对账单' } },
       { path: 'pay/new', name: 'payNew', component: () => import('./views/PayNew.vue'), meta: { title: '收付款' } },
       { path: 'logs', name: 'logs', component: () => import('./views/StockLog.vue'), meta: { title: '出入库明细' } },
     ],

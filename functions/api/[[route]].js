@@ -30,6 +30,7 @@ import { routes as stockRoutes } from '../../cf/routes/stock.js'
 import { routes as saleReturnRoutes } from '../../cf/routes/saleReturns.js'
 import { routes as purchaseReturnRoutes } from '../../cf/routes/purchaseReturns.js'
 import { routes as paymentRoutes } from '../../cf/routes/payments.js'
+import { routes as statementRoutes } from '../../cf/routes/statements.js'
 import { routes as reportRoutes } from '../../cf/routes/reports.js'
 import { routes as systemRoutes } from '../../cf/routes/system.js'
 
@@ -46,6 +47,7 @@ const ROUTES = [
   ...saleReturnRoutes,
   ...purchaseReturnRoutes,
   ...paymentRoutes,
+  ...statementRoutes,
   ...reportRoutes,
   ...systemRoutes,
 ]

@@ -24,6 +24,7 @@ const routes = [
       { path: 'stock-log', name: 'StockLog', component: () => import('../views/StockLog.vue'), meta: { perm: 'stocklog:view' } },
 
       { path: 'payment', name: 'Payment', component: () => import('../views/Payment.vue'), meta: { perm: 'finance:view' } },
+      { path: 'statement', name: 'Statement', component: () => import('../views/Statement.vue'), meta: { perm: ['customer:view', 'supplier:view'] } },
       { path: 'report', name: 'Report', component: () => import('../views/Report.vue'), meta: { perm: 'report:view' } },
 
       { path: 'users', name: 'Users', component: () => import('../views/User.vue'), meta: { perm: 'user:view' } },
@@ -57,7 +58,10 @@ router.beforeEach(async (to, from, next) => {
     await store.fetchUserInfo()
   }
 
-  if (!store.hasPermission(need)) {
+  // perm 可以是单个权限码，也可以是数组（OR 语义），
+  // 例如对账单：有客户权限或有供应商权限都能进。
+  const needList = Array.isArray(need) ? need : [need]
+  if (!store.hasPermission(...needList)) {
     ElMessage.error({ message: '无权访问该页面', duration: 3000 })
     // 已在该页则放行，避免死循环
     if (from.path === to.path || !from.matched.length) return next('/dashboard')

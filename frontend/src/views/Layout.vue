@@ -45,6 +45,10 @@
           <el-sub-menu index="finance">
             <template #title><el-icon><Money /></el-icon><span>财务管理</span></template>
             <el-menu-item index="/payment" v-if="userStore.hasPermission('finance:view')">收付款</el-menu-item>
+            <el-menu-item
+              index="/statement"
+              v-if="userStore.hasPermission('customer:view', 'supplier:view')"
+            >对账单</el-menu-item>
           </el-sub-menu>
 
           <el-sub-menu index="report">

@@ -22,7 +22,7 @@
     <template v-else>
       <div class="card card-tight">
         <div v-for="s in items" :key="s.id" class="list-item">
-          <div class="between">
+          <div class="between tappable" @click="openStatement(s)">
             <div class="grow">
               <div class="bold">{{ s.name }}</div>
               <div class="tiny muted-3 mt8">
@@ -36,6 +36,7 @@
               </div>
               <div class="tiny muted-3 mt8">
                 {{ payableLabel(s._amount) }}
+                <span> ›</span>
               </div>
             </div>
           </div>
@@ -149,6 +150,11 @@ function loadMore() {
 /** 带供应商 + 付款类型进收付款页 */
 function goPay(s) {
   router.push({ path: '/m/pay/new', query: { partner: s.id, ptype: 'supplier', type: 2 } })
+}
+
+/** 点击行主体查看该供应商的对账单 */
+function openStatement(s) {
+  router.push({ path: '/m/statement', query: { side: 'supplier', partner_id: s.id } })
 }
 
 onMounted(reload)

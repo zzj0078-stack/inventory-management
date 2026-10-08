@@ -482,6 +482,17 @@ textarea.input {
   border-radius: 10px;
 }
 
+/*
+ * 可点击的行主体（点进去看详情/对账单）。
+ * 只加一点按压反馈，不加下划线或边框 —— 避免和数据行观感冲突。
+ */
+.tappable {
+  cursor: pointer;
+}
+.tappable:active {
+  opacity: 0.6;
+}
+
 .field-hint {
   font-size: 12px;
   color: var(--text-3);

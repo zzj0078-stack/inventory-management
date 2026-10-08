@@ -107,6 +107,10 @@ export const updatePayment = (id, data) => api.put(`/ext/payments/${id}`, data)
 export const deletePayment = (id) => api.delete(`/ext/payments/${id}`)
 export const getReceivables = () => api.get('/ext/receivables')
 
+// 对账单（客户应收 / 供应商应付）
+export const getCustomerStatement = (params) => api.get('/ext/statement/customer', { params })
+export const getSupplierStatement = (params) => api.get('/ext/statement/supplier', { params })
+
 // 库存明细
 export const getStockLogs = (params) => api.get('/ext/stock-logs', { params })
 export const getStockLogStat = () => api.get('/ext/stock-logs/stat')

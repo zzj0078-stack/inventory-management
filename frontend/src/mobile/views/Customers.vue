@@ -17,7 +17,7 @@
     <template v-else>
       <div class="card card-tight">
         <div v-for="c in items" :key="c.id" class="list-item">
-          <div class="between">
+          <div class="between tappable" @click="openStatement(c)">
             <div class="grow">
               <div class="bold">{{ c.name }}</div>
               <div class="tiny muted-3 mt8">
@@ -31,6 +31,7 @@
               </div>
               <div class="tiny muted-3 mt8">
                 {{ (c._amount || 0) > 0 ? '欠款' : (c._amount || 0) < 0 ? '预收' : '已结清' }}
+                <span> ›</span>
               </div>
             </div>
           </div>
@@ -43,7 +44,8 @@
               @click="goPay(c)"
             >
               登记收款
-            </button>          </div>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -130,6 +132,11 @@ function loadMore() {
 /** 带客户 + 收款类型进收付款页 */
 function goPay(c) {
   router.push({ path: '/m/pay/new', query: { partner: c.id, ptype: 'customer', type: 1 } })
+}
+
+/** 点击行主体查看该客户的对账单 */
+function openStatement(c) {
+  router.push({ path: '/m/statement', query: { side: 'customer', partner_id: c.id } })
 }
 
 onMounted(reload)

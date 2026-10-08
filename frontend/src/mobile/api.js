@@ -119,6 +119,10 @@ export const api = {
   createPayment: (data) => client.post('/ext/payments', data),
   receivables: () => client.get('/ext/receivables'),
 
+  // 对账单（客户应收 / 供应商应付）
+  customerStatement: (params) => client.get('/ext/statement/customer', { params }),
+  supplierStatement: (params) => client.get('/ext/statement/supplier', { params }),
+
   // 报表（老板界面用）
   salesReport: (params) => client.get('/ext/reports/sales', { params }),
   purchaseReport: (params) => client.get('/ext/reports/purchase', { params }),

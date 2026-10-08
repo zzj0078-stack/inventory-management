@@ -111,16 +111,21 @@ const d = reactive({
 })
 const daily = reactive({ total_amount: 0, items: [] })
 
+/**
+ * 常用功能：固定这 6 项，按业务顺序排列（单据 → 收付 → 对账 → 库存）。
+ *
+ * 欠款不再单列入口：客户欠款 / 采购欠款两个页面仍然保留（对账单里点不开时
+ * 还可从「我的」进入），但欠款本身改由「对账单」承载 —— 对账单既能看欠款
+ * 余额，也能看每一笔是怎么来的。
+ * 开单/收货入口也从这里移除，改由对应 Tab 页右下角的「＋」和「采购收货」进入。
+ */
 const allQuicks = [
-  { label: '开销售单', ico: '＋', to: '/m/sales/new', perm: 'sales:add' },
-  { label: '开采购单', ico: '采', to: '/m/purchase/new', perm: 'purchase:add' },
-  { label: '收付款', ico: '￥', to: '/m/pay/new', perm: 'finance:add' },
-  { label: '客户欠款', ico: '客', to: '/m/customers', perm: 'customer:view' },
-  { label: '采购欠款', ico: '欠', to: '/m/suppliers', perm: 'supplier:view' },
-  { label: '采购收货', ico: '收', to: '/m/purchase/receive', perm: 'purchase:receive' },
-  { label: '销售单', ico: '单', to: '/m/sales', perm: 'sales:view' },
   { label: '采购单', ico: '购', to: '/m/purchase', perm: 'purchase:view' },
-  { label: '库存价格', ico: '库', to: '/m/stock', perm: 'inventory:view' },
+  { label: '销售单', ico: '单', to: '/m/sales', perm: 'sales:view' },
+  { label: '收付款', ico: '￥', to: '/m/pay/new', perm: 'finance:add' },
+  // 对账单：客户或供应商任一权限即可（hasPerm 支持数组，OR 语义）
+  { label: '对账单', ico: '账', to: '/m/statement', perm: ['customer:view', 'supplier:view'] },
+  { label: '库存', ico: '库', to: '/m/stock', perm: 'inventory:view' },
   { label: '出入库明细', ico: '流', to: '/m/logs', perm: 'stocklog:view' },
 ]
 

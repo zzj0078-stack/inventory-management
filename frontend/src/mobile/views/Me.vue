@@ -133,6 +133,8 @@ function toggleView() {
 
 /** 只显示当前账号有权限的入口，避免点进去吃 403 */
 const allLinks = [
+  // 对账单是对外的主体入口；欠款页保留在这里，便于直接看排行榜式的欠款清单
+  { label: '对账单', to: '/m/statement', perm: ['customer:view', 'supplier:view'] },
   { label: '客户欠款', to: '/m/customers', perm: 'customer:view' },
   { label: '采购欠款', to: '/m/suppliers', perm: 'supplier:view' },
   { label: '收付款', to: '/m/pay/new', perm: 'finance:add' },

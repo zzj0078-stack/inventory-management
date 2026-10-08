@@ -202,12 +202,14 @@ const quicks = computed(() => {
   if (canApprove.value) list.push({ ico: '审', label: '待我审核', to: '/m/boss/approve' })
   if (hasPerm('report:view')) list.push({ ico: '报', label: '经营报表', to: '/m/boss/reports' })
   if (hasPerm('finance:view')) list.push({ ico: '欠', label: '欠款排行', to: '/m/boss/debts' })
-  // 与员工界面保持一致：欠款分「客户欠我们」和「我们欠供应商」两边
-  if (hasPerm('customer:view')) list.push({ ico: '客', label: '客户欠款', to: '/m/customers' })
-  if (hasPerm('supplier:view')) list.push({ ico: '采', label: '采购欠款', to: '/m/suppliers' })
+  // 与员工界面保持一致：欠款由「对账单」承载，不再单列客户/供应商欠款入口
+  // （两个欠款页仍可从「我的」以及欠款排行页底部进入）
+  if (hasPerm(['customer:view', 'supplier:view'])) {
+    list.push({ ico: '账', label: '对账单', to: '/m/statement' })
+  }
   if (hasPerm('finance:add')) list.push({ ico: '￥', label: '收付款', to: '/m/pay/new' })
   if (hasPerm('sales:view')) list.push({ ico: '单', label: '销售单', to: '/m/sales' })
-  if (hasPerm('inventory:view')) list.push({ ico: '库', label: '库存价格', to: '/m/stock' })
+  if (hasPerm('inventory:view')) list.push({ ico: '库', label: '库存', to: '/m/stock' })
   if (hasPerm('purchase:receive')) list.push({ ico: '收', label: '采购收货', to: '/m/purchase/receive' })
   return list
 })

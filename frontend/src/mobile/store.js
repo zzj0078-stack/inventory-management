@@ -25,10 +25,16 @@ export const session = reactive({
 /** admin 角色后端返回 ['*']，前端一律按全权限处理 */
 export const isAdmin = computed(() => session.permissions.includes('*'))
 
+/**
+ * 是否有权限。
+ * code 可以是单个权限码，也可以是数组（OR 语义）——
+ * 例如对账单：有客户权限或有供应商权限都能进。
+ */
 export function hasPerm(code) {
   if (!code) return true
   if (isAdmin.value) return true
-  return session.permissions.includes(code)
+  const list = Array.isArray(code) ? code : [code]
+  return list.some((c) => session.permissions.includes(c))
 }
 
 export function setToken(token) {

@@ -2,6 +2,8 @@
 
 20 人销售型公司使用的进销存 + OA 系统。Web 端（Vue3 + Element Plus），后端 FastAPI + SQLite。
 
+**线上部署**：Cloudflare Pages（静态前端）+ Cloudflare D1（数据库）
+
 ---
 
 ## 从 GitHub 克隆后如何跑起来
@@ -51,98 +53,6 @@ python run.py
 
 > ⚠️ **首次登录后立即修改 admin 密码。**
 
-### 5. Windows 一键脚本（可选）
-
-`.bat` 脚本**不硬编码 Python 路径**，启动时会自动探测，无需手工修改：
-
-| 优先级 | 来源 |
-|--------|------|
-| 1 | 环境变量 `INVENTORY_PYTHON`（手动指定） |
-| 2 | 项目虚拟环境 `backend\.venv` 或 `.venv` |
-| 3 | `py -3` 启动器 |
-| 4 | PATH 中的 `python`（跳过微软商店占位程序） |
-| 5 | 常见安装目录 `%LOCALAPPDATA%\Programs\Python\Python3xx`、`C:\Python3xx` 等 |
-
-找不到时会提示安装方式，或指定已有解释器：
-
-```powershell
-setx INVENTORY_PYTHON "C:\Path\to\python.exe"
-```
-
-一键脚本流程：`go.bat` = 停旧进程 → 构建前端 → 启动后端 → 打开浏览器。
-
----
-
-## 快速开始（本机已有环境）
-
-### 1. 初始化数据库（首次或重置）
-
-```
-双击 reset_db.bat          # 会二次确认，输入 YES 才执行
-```
-
-或手动：
-
-```powershell
-cd backend
-Remove-Item .\inventory.db -Force
-python init_db.py
-python create_test_data.py
-```
-
-### 2. 启动
-
-```
-双击 go.bat
-```
-
-- 后端：http://localhost:3041
-- API 文档：http://localhost:3041/docs
-- 前端：http://localhost:3041（单端口，go.bat 启动前会重建前端）
-
-默认账号：`admin` / `admin123`
-
-### 3. 开发模式（改前端代码无需构建）
-
-```
-双击 watch.bat
-```
-
-`vite build --watch` 常驻，保存源文件后 1-2 秒自动重建，浏览器按 `F5` 即可看到改动。
-
-### 4. 重启后端（改完后端代码后）
-
-用 `go.bat` 或 `watch.bat` 重新启动即可，两者都会先停止旧进程。
-
-启动窗口会打印路由自检：
-
-```
-[INFO] total routes: 90
-[OK]   全部关键路由已加载
-```
-
-若出现 `[WARN] 缺失路由`，说明代码未更新或重启失败。
-
----
-
-## 脚本清单
-
-> 所有 `.bat` 均为纯 ASCII（英文），避免 cmd 按 GBK 解析 UTF-8 导致乱码/命令解析失败。
-> 所有停止逻辑按**端口**（3040/3041）精确匹配，不会误杀其它 Python / Node 程序。
-
-| 脚本 | 作用 |
-|------|------|
-| `go.bat` | **日常启动**：停旧进程 → 重建前端 → 启动后端 → 打开浏览器 |
-| `watch.bat` | **开发模式**：启动后端 + `vite build --watch`，保存即重建 |
-| `stop.bat` | 停止服务（仅 3040/3041） |
-| `clean.bat` | 清理 `dist` / `__pycache__` / 日志（保留数据库与图片） |
-| `fix.bat` | 数据修复菜单：时间偏移 / 税额口径 / 退货状态 / 对账诊断 |
-| `logs.bat` | 服务状态 + 日志查看（后端 / 错误 / vite / 实时跟踪） |
-| `backup.bat` | 备份数据库并列出历史备份 |
-| `reset_db.bat` | 重置数据库（清空并重建，仅保留 admin，需输入 YES 确认） |
-| `package_for_deploy.bat` | 打包 Linux 部署包（含前端构建） |
-
-
 ---
 
 ## 目录结构
@@ -170,17 +80,11 @@ public/
 │   │   ├── router/        # 路由
 │   │   └── views/         # 页面
 │   └── vite.config.js
-├── deploy/                # Linux 部署脚本（deploy.sh / service.sh / backup.sh / DEPLOY.md）
-├── tools/                 # 脚本公共组件（按端口停服务、隐藏启动、端口探测、倒计时）
-├── go.bat                 # 日常启动（重建前端 + 启后端）
-├── watch.bat              # 开发模式（自动重建）
-├── stop.bat               # 停止服务
-├── clean.bat              # 清理构建产物与缓存
-├── fix.bat                # 数据修复菜单
-├── logs.bat               # 服务状态 + 日志
-├── backup.bat             # 备份数据库
-├── reset_db.bat           # 重置数据库
-└── package_for_deploy.bat # 打包 Linux 部署包
+├── cf/                    # Cloudflare 部署相关
+├── deploy/                # Linux 部署脚本
+├── functions/             # Cloudflare Pages Functions
+├── tools/                 # 脚本公共组件
+└── wrangler.toml          # Cloudflare 配置
 ```
 
 ---
@@ -223,22 +127,8 @@ public/
 | 规则 | 说明 |
 |------|------|
 | 长度 | 8 - 64 位 |
-| 特殊字符 | **至少 1 个**。ASCII 全部可见标点（`!` `@` `#` `$` `%` `^` `&` `*` `(` `)` `-` `_` `=` `+` `[` `]` `{` `}` `;` `:` `'` `"` `,` `.` `<` `>` `/` `?` `\` `|` `~` 反引号）以及常见全角标点（`！` `？` `。` `，` `、` `；` `：` `“` `”` `（` `）` `《` `》` `·` `￥` 等） |
+| 特殊字符 | **至少 1 个**。ASCII 全部可见标点以及常见全角标点 |
 | 空格 | 不允许（含 Tab） |
-
-生效位置（后端全部强制，前端同步提示）：
-
-| 接口 | 位置 |
-|------|------|
-| `POST /api/users` | 新增用户 |
-| `PUT /api/users/{id}` | 编辑用户改密码 |
-| `POST /api/auth/change-password` | 用户自助改密（另禁止与旧密码相同） |
-| `POST /api/auth/reset-password` | 管理员重置（默认值 `Aa123456!`） |
-
-管理员重置密码的默认值已从 `123456` 改为 `Aa123456!`（符合策略）。
-**历史弱密码不受影响，仍可正常登录** —— 策略只在写入新密码时校验。
-
-规则文案可通过 `GET /api/auth/password-rules`（免登录）取回，避免前后端各写一份。
 
 ---
 
@@ -261,17 +151,11 @@ public/
 
 ## 数据库
 
-- 默认 SQLite：`backend/inventory.db`（路径由 `config.py` 转绝对，不受 cwd 影响）
+- 默认 SQLite：`backend/inventory.db`
 - 已启用 `WAL` + `busy_timeout=30s`，支持读写并发
 - 表结构由 SQLAlchemy `create_all` 生成；**新增字段需删除库重建**（无迁移框架）
 
 ### 备份
-
-```
-双击 backup.bat
-```
-
-或：
 
 ```powershell
 cd backend
@@ -280,19 +164,9 @@ python backup_db.py --list                          # 列出
 python backup_db.py --restore inventory_20260101_120000.db   # 还原
 ```
 
-备份文件在 `backend/backups/`。
-
 ### 导出
 
-各列表页「导出CSV」按钮，或直接 `GET /api/ext/export/{inventory|sales|purchase|stocklog|logs}`（带 `Authorization: Bearer <token>`）。CSV 带 BOM，Excel 打开不乱码。
-
----
-
-## 打印
-
-- 模板页：`/print`，可「设置公司信息」（公司名、地址、电话），存 localStorage，全局生效
-- 采购/销售列表 → 详情 → 打印：按金蝶销售单格式输出（抬头 + 客户信息 + 明细表 + 金额大写 + 备注 + 双签章位）
-- 金额大写由前端 `amountInChinese()` 转换
+各列表页「导出CSV」按钮，或直接 `GET /api/ext/export/{inventory|sales|purchase|stocklog|logs}`。
 
 ---
 
@@ -313,6 +187,5 @@ python backup_db.py --restore inventory_20260101_120000.db   # 还原
 
 1. SQLite 单文件，多实例部署需换 PostgreSQL
 2. 无数据库迁移，改模型字段需重建库
-3. 后端未做接口级权限校验（仅前端控制）
-4. 微信小程序端未开发
-5. 打印为浏览器打印，非服务端 PDF 生成
+3. 微信小程序端未开发
+4. 打印为浏览器打印，非服务端 PDF 生成

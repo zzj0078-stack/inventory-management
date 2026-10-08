@@ -125,7 +125,7 @@ function summarize(labels) {
 }
 
 /** 单据 → 响应形状（纯函数，关联数据由调用方备好） */
-function shapeOrder(cfg, order, { items, party, warehouse, creator, settledAmount }) {
+function shapeOrder(cfg, order, { items, party, warehouse, creator, settledAmount, returnedAmount }) {
   let creatorName = ''
   if (order[cfg.personField]) {
     creatorName = order[cfg.personField]
@@ -133,24 +133,40 @@ function shapeOrder(cfg, order, { items, party, warehouse, creator, settledAmoun
     creatorName = creator.full_name || creator.username || ''
   }
 
-  // 结清状态：已结金额来自收付款核销（payment_allocations）
+  /*
+   * 结清判断（三样数据缺一不可）：
+   *   单据金额   total_amount
+   *   已退货金额 returned_amount   退货的部分不用再收/付
+   *   已结金额   settled_amount    收付款核销分配到这张单的合计
+   *
+   * 应结金额 = 单据金额 − 已退货。
+   * 曾经漏掉退货这一项：单据 1000 退 300、客户付清 700，
+   * 仍会算出"还欠 300"，永远显示部分结清。
+   */
   const totalAmount = Number(order.total_amount || 0)
-  const settled = Number(settledAmount || 0)
-  const outstanding = Math.round((totalAmount - settled) * 100) / 100
+  const returned = Math.round(Number(returnedAmount || 0) * 100) / 100
+  const payable = Math.round((totalAmount - returned) * 100) / 100
+  const settled = Math.round(Number(settledAmount || 0) * 100) / 100
+  const outstanding = Math.round((payable - settled) * 100) / 100
   // 未审核的单据不参与结清判断（还没进入结算流程）
   const countable = (order.status ?? 0) !== 0
   const settlement = !countable
     ? 'na'
-    : outstanding <= 0.005 && totalAmount > 0
-      ? 'settled'
-      : settled > 0
-        ? 'partial'
-        : 'unsettled'
+    : payable <= 0.005
+      ? // 整单退完 / 金额为 0：没有可收付的，视为已结清
+        'settled'
+      : outstanding <= 0.005
+        ? 'settled'
+        : settled > 0
+          ? 'partial'
+          : 'unsettled'
 
   return {
     id: order.id,
     order_no: order.order_no,
-    settled_amount: Math.round(settled * 100) / 100,
+    settled_amount: settled,
+    returned_amount: returned,
+    payable_amount: payable,
     outstanding_amount: outstanding,
     settlement,
     settlement_text:
@@ -228,6 +244,7 @@ async function decorate(ctx, cfg, order) {
 
   const prodMap = await loadProducts(db, rawItems)
   const settledMap = await settledByOrder(db, cfg, [order.id])
+  const returnedMap = await returnedByOrder(db, cfg, [order.id])
 
   return shapeOrder(cfg, order, {
     items: shapeItems(cfg, rawItems, prodMap),
@@ -235,6 +252,7 @@ async function decorate(ctx, cfg, order) {
     warehouse,
     creator,
     settledAmount: settledMap.get(Number(order.id)) || 0,
+    returnedAmount: returnedMap.get(Number(order.id)) || 0,
   })
 }
 
@@ -269,6 +287,31 @@ async function settledByOrder(db, cfg, orderIds) {
         GROUP BY related_id`
   )
   for (const r of rows) map.set(Number(r.related_id), Number(r.v || 0))
+  return map
+}
+
+/**
+ * 批量取若干单据的**已退货金额**，按单据 id 分组。
+ *
+ * 只算已生效的退货单（status IN (1,2)），与 statements / calcOutstanding 口径一致。
+ * 退货意味着这部分货不用再收/付，所以结清判断必须减掉它。
+ */
+async function returnedByOrder(db, cfg, orderIds) {
+  const map = new Map()
+  if (!orderIds.length) return map
+  const isSales = cfg.base === 'sales'
+  const table = isSales ? 'sale_returns' : 'purchase_returns'
+  const fk = isSales ? 'sales_order_id' : 'purchase_order_id'
+  const rows = await allInChunks(
+    db,
+    orderIds,
+    (ph) =>
+      `SELECT ${fk} AS oid, COALESCE(SUM(total_amount), 0) AS v
+         FROM ${table}
+        WHERE ${fk} IN (${ph}) AND status IN (1,2)
+        GROUP BY ${fk}`
+  )
+  for (const r of rows) map.set(Number(r.oid), Number(r.v || 0))
   return map
 }
 
@@ -318,6 +361,7 @@ async function decorateMany(ctx, cfg, orders) {
   }
 
   const settledMap = await settledByOrder(db, cfg, orders.map((o) => o.id))
+  const returnedMap = await returnedByOrder(db, cfg, orders.map((o) => o.id))
 
   return orders.map((o) => {
     const raw = itemsByOrder.get(o.id) || []
@@ -327,6 +371,7 @@ async function decorateMany(ctx, cfg, orders) {
       warehouse: whMap.get(o.warehouse_id) || null,
       creator: userMap.get(o.created_by) || null,
       settledAmount: settledMap.get(Number(o.id)) || 0,
+      returnedAmount: returnedMap.get(Number(o.id)) || 0,
     })
 
     // 列表摘要：直接用已经取到的明细算，不再单独查一遍

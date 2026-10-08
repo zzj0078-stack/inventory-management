@@ -561,16 +561,41 @@ async function openOrders(ctx) {
     settled.set(Number(r.related_id), Number(r.v || 0))
   }
 
+  /*
+   * 已退货金额：退货的部分不用再收/付，必须从应结金额里减掉。
+   * 与单据列表、对账单口径保持一致，否则会出现
+   * 「单据列表说已结清、核销列表说还欠 300」这种自相矛盾。
+   */
+  const returnTable = isCustomer ? 'sale_returns' : 'purchase_returns'
+  const returnFk = isCustomer ? 'sales_order_id' : 'purchase_order_id'
+  const returned = new Map()
+  for (const r of await allInChunks(
+    db,
+    orders.map((o) => o.id),
+    (ph) =>
+      `SELECT ${returnFk} AS oid, COALESCE(SUM(total_amount), 0) AS v
+         FROM ${returnTable}
+        WHERE ${returnFk} IN (${ph}) AND status IN (1,2)
+        GROUP BY ${returnFk}`
+  )) {
+    returned.set(Number(r.oid), Number(r.v || 0))
+  }
+
   const items = orders.map((o) => {
     const total = Number(o.total_amount || 0)
     const paid = settled.get(Number(o.id)) || 0
-    const outstanding = Math.round((total - paid) * 100) / 100
+    const ret = Math.round((returned.get(Number(o.id)) || 0) * 100) / 100
+    // 应结 = 单据金额 − 已退货；未结 = 应结 − 已结
+    const payable = Math.round((total - ret) * 100) / 100
+    const outstanding = Math.round((payable - paid) * 100) / 100
     return {
       id: o.id,
       order_no: o.order_no,
       date: o.d,
       status: o.status,
       total_amount: total,
+      returned_amount: ret,
+      payable_amount: payable,
       settled_amount: paid,
       outstanding,
       settled: outstanding <= 0.005,

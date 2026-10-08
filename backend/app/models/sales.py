@@ -64,6 +64,8 @@ class SalesOrder(Base):
     approve_at = Column(DateTime(timezone=True))
     remark = Column(Text)
     delivery_address = Column(String(500))
+    receiver_name = Column(String(50))    # 接收人姓名
+    receiver_phone = Column(String(30))   # 接收人电话
     invoice_no = Column(String(50))
     created_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), default=now_local)

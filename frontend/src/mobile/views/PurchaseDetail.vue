@@ -12,6 +12,9 @@
         <div class="kv"><span>联系人</span><span>{{ o.supplier_contact || '—' }}{{ o.supplier_phone ? ' · ' + o.supplier_phone : '' }}</span></div>
         <div class="kv"><span>采购日期</span><span>{{ o.purchase_date || '—' }}</span></div>
         <div class="kv"><span>收货仓库</span><span>{{ o.warehouse_name || '—' }}</span></div>
+        <div v-if="o.delivery_address" class="kv"><span>交货地址</span><span>{{ o.delivery_address }}</span></div>
+        <div v-if="o.receiver_name" class="kv"><span>接收人</span><span>{{ o.receiver_name }}</span></div>
+        <div v-if="o.receiver_phone" class="kv"><span>接收人电话</span><span>{{ o.receiver_phone }}</span></div>
         <div v-if="o.remark" class="kv"><span>备注</span><span>{{ o.remark }}</span></div>
       </div>
 

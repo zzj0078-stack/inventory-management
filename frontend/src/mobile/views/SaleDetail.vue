@@ -14,6 +14,9 @@
         <div class="kv"><span>销售日期</span><span>{{ o.sale_date || '—' }}</span></div>
         <div class="kv"><span>发货仓库</span><span>{{ o.warehouse_name || '—' }}</span></div>
         <div class="kv"><span>销售员</span><span>{{ o.seller || o.creator_name || '—' }}</span></div>
+        <div v-if="o.delivery_address" class="kv"><span>送货地址</span><span>{{ o.delivery_address }}</span></div>
+        <div v-if="o.receiver_name" class="kv"><span>接收人</span><span>{{ o.receiver_name }}</span></div>
+        <div v-if="o.receiver_phone" class="kv"><span>接收人电话</span><span>{{ o.receiver_phone }}</span></div>
         <div v-if="o.remark" class="kv"><span>备注</span><span>{{ o.remark }}</span></div>
       </div>
 

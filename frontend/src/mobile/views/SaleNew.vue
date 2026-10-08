@@ -98,6 +98,27 @@
       </div>
     </div>
 
+    <!-- 送货信息：地址 + 接收人，送货单/打印件上要用 -->
+    <div class="card">
+      <div class="card-title">送货信息</div>
+
+      <div class="field">
+        <label class="field-label">送货地址</label>
+        <input v-model.trim="deliveryAddress" class="input" type="text" placeholder="选填，送到哪里" />
+      </div>
+
+      <div class="row" style="gap: 10px">
+        <div class="field grow" style="margin-bottom: 0">
+          <label class="field-label">接收人</label>
+          <input v-model.trim="receiverName" class="input" type="text" placeholder="选填" />
+        </div>
+        <div class="field grow" style="margin-bottom: 0">
+          <label class="field-label">接收人电话</label>
+          <input v-model.trim="receiverPhone" class="input" type="tel" inputmode="tel" placeholder="选填" />
+        </div>
+      </div>
+    </div>
+
     <div class="actionbar">
       <button class="btn btn-primary" :disabled="saving" @click="submit">
         {{ saving ? '提交中…' : '保存草稿' }}
@@ -177,6 +198,10 @@ const saleDate = ref(today())
 // 与桌面端保持一致：默认 13%（桌面 Purchase.vue / Sales.vue 新增明细也是 13）
 const taxRate = ref(13)
 const freight = ref(0)
+// 送货信息（可选）：送货地址 + 接收人姓名/电话
+const deliveryAddress = ref('')
+const receiverName = ref('')
+const receiverPhone = ref('')
 const items = ref([])
 const saving = ref(false)
 
@@ -272,6 +297,9 @@ async function submit() {
       sale_date: saleDate.value || undefined,
       seller: (session.user && (session.user.full_name || session.user.username)) || undefined,
       freight: num(freight.value),
+      delivery_address: deliveryAddress.value || undefined,
+      receiver_name: receiverName.value || undefined,
+      receiver_phone: receiverPhone.value || undefined,
       items: items.value.map((it) => ({
         product_id: it.product_id,
         quantity: num(it.quantity),

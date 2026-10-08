@@ -63,6 +63,8 @@ class PurchaseOrder(Base):
     approve_by = Column(Integer, ForeignKey("users.id"))
     approve_at = Column(DateTime(timezone=True))
     delivery_address = Column(String(500))                         # 交货地址
+    receiver_name = Column(String(50))                             # 接收人姓名
+    receiver_phone = Column(String(30))                            # 接收人电话
     invoice_no = Column(String(50))                                # 发票号
     remark = Column(Text)
     created_by = Column(Integer, ForeignKey("users.id"))

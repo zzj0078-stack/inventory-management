@@ -133,6 +133,8 @@
             {{ detailData.created_at ? new Date(detailData.created_at).toLocaleString() : '' }}
           </el-descriptions-item>
           <el-descriptions-item label="交货地址" :span="3">{{ detailData.delivery_address || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="接收人">{{ detailData.receiver_name || '-' }}</el-descriptions-item>
+          <el-descriptions-item label="接收人电话" :span="2">{{ detailData.receiver_phone || '-' }}</el-descriptions-item>
           <el-descriptions-item label="备注" :span="3">{{ detailData.remark || '-' }}</el-descriptions-item>
         </el-descriptions>
         
@@ -384,6 +386,18 @@
         <el-form-item label="交货地址">
           <el-input v-model="form.delivery_address" placeholder="选填" />
         </el-form-item>
+        <el-row :gutter="16">
+          <el-col :span="12">
+            <el-form-item label="接收人">
+              <el-input v-model="form.receiver_name" placeholder="选填，收货联系人" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="接收人电话">
+              <el-input v-model="form.receiver_phone" placeholder="选填" />
+            </el-form-item>
+          </el-col>
+        </el-row>
         <el-form-item label="备注">
           <el-input v-model="form.remark" />
         </el-form-item>
@@ -592,6 +606,8 @@ const form = reactive({
   items: [],
   remark: '',
   delivery_address: '',
+  receiver_name: '',
+  receiver_phone: '',
   invoice_no: ''
 })
 
@@ -699,6 +715,8 @@ const handleAdd = () => {
   form.items = [{ product_id: null, quantity: 1, price: 0, tax_rate: 13, remark: '' }]
   form.remark = ''
   form.delivery_address = ''
+  form.receiver_name = ''
+  form.receiver_phone = ''
   form.invoice_no = ''
   addVisible.value = true
 }
@@ -726,6 +744,8 @@ const handleEdit = async (row) => {
   }))
   form.remark = d.remark || ''
   form.delivery_address = d.delivery_address || ''
+  form.receiver_name = d.receiver_name || ''
+  form.receiver_phone = d.receiver_phone || ''
   form.invoice_no = d.invoice_no || ''
   if (!products.value.length) await loadBaseData()
   addVisible.value = true
@@ -899,6 +919,8 @@ const handlePrint = () => {
     remark: d.remark || '',
     invoice_no: d.invoice_no || '',
     delivery_address: d.delivery_address || '',
+    receiver_name: d.receiver_name || '',
+    receiver_phone: d.receiver_phone || '',
     sign_left: '退货单位及经手人',
     sign_right: '供应商及经手人',
     items,
@@ -941,6 +963,12 @@ function buildPrintHtml(d) {
     ${d.delivery_address ? `<tr>
       <td style="border:1px solid #000;padding:4px 8px;font-weight:bold;">交货地址</td>
       <td style="border:1px solid #000;padding:4px 8px;" colspan="3">${escapeHtml(d.delivery_address)}</td>
+    </tr>` : ''}
+    ${(d.receiver_name || d.receiver_phone) ? `<tr>
+      <td style="border:1px solid #000;padding:4px 8px;font-weight:bold;">接收人</td>
+      <td style="border:1px solid #000;padding:4px 8px;">${escapeHtml(d.receiver_name || '')}</td>
+      <td style="border:1px solid #000;padding:4px 8px;font-weight:bold;">接收人电话</td>
+      <td style="border:1px solid #000;padding:4px 8px;">${escapeHtml(d.receiver_phone || '')}</td>
     </tr>` : ''}`
 
   return `

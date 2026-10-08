@@ -212,6 +212,7 @@
                     :controls="false"
                     size="small"
                     style="width:100%"
+                    @change="onAllocEdit"
                   />
                 </template>
               </el-table-column>
@@ -279,7 +280,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import {
   getPayments, createPayment, updatePayment, deletePayment, getReceivables,
   getCustomers, getSuppliers, downloadExport, getOpenOrders,
@@ -427,9 +428,22 @@ async function loadOpenOrders() {
   }
 }
 
+/**
+ * 用户是否手动改过核销金额。
+ * 手动改过之后就不再自动覆盖——否则改金额会把人工调整冲掉，来回打架。
+ * 点「自动分摊」或换往来单位会重置为 false，重新开始自动分配。
+ */
+const allocTouched = ref(false)
+
+/** 用户在某一行的核销输入框里改了值 */
+function onAllocEdit() {
+  allocTouched.value = true
+}
+
 /** 按日期从早到晚分配，直到用完本次金额 */
 function allocOldestFirst() {
   clearAlloc()
+  allocTouched.value = false
   let left = Number(form.amount || 0)
   if (!(left > 0)) return
   for (const o of openOrders.value) {
@@ -442,8 +456,22 @@ function allocOldestFirst() {
   }
 }
 
+/**
+ * 金额变了就重新分摊。
+ * 这是「金额与核销联动」的核心：以前改完金额必须手动再点一次自动分摊，
+ * 否则显示的还是上一次金额算出来的分配，看着像算错了。
+ */
+watch(
+  () => form.amount,
+  () => {
+    if (allocTouched.value || !openOrders.value.length) return
+    allocOldestFirst()
+  }
+)
+
 function clearAlloc() {
   for (const k of Object.keys(alloc)) delete alloc[k]
+  allocTouched.value = true
 }
 
 /** 提交用的分配数组（过滤 0 与空行） */

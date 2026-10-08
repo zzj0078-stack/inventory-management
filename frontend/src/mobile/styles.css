@@ -214,6 +214,49 @@ body {
   background: #f9fafb;
 }
 
+/* 页面级入口行（如采购单页顶部的「采购收货」）。
+   ⚠️ 两个踩过的坑，都别重犯：
+   1) 不要用 .card + .card-tight 拼一个按钮 —— .card-tight 是 padding:0，
+      它是给「列表容器」用的（靠内部 .list-item 提供内边距），
+      单个按钮套上去文字会**直接贴到卡片边缘**。
+   2) 不要做成和列表一样的白卡片 —— 入口会被误认成一条数据行，
+      也会显得比下面的单据列表还重。这里用浅底 + 无阴影，
+      视觉层级明确低于内容卡片。 */
+.entry-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 0 0 10px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #eef4ff;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.entry-row:active {
+  background: #e3edff;
+}
+
+.entry-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.entry-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--primary);
+}
+
 /* 表格替代：左右两栏的键值行 */
 .kv {
   display: flex;

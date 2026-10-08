@@ -1,5 +1,18 @@
-﻿<template>
+<template>
   <div class="page with-tabbar">
+    <!--
+      收货入口：只给有收货权限的人（仓库/管理员）。
+      放在搜索与筛选**之前** —— 它是页面级入口，和下面的列表筛选无关，
+      夹在筛选栏与列表之间会被误读成一条数据行。
+    -->
+    <button v-if="canReceive" class="entry-row" @click="router.push('/m/purchase/receive')">
+      <span class="entry-main">
+        <span class="entry-title">采购收货</span>
+        <span class="tiny muted-3">待收货清单，按单登记入库</span>
+      </span>
+      <span class="muted-3">›</span>
+    </button>
+
     <div class="searchbar">
       <input
         v-model.trim="keyword"
@@ -23,17 +36,7 @@
       </button>
     </div>
 
-    <!-- 收货入口：只给有收货权限的人（仓库/管理员） -->
-    <button
-      v-if="canReceive"
-      class="card card-tight to-receive"
-      @click="router.push('/m/purchase/receive')"
-    >
-      <div class="between">
-        <span>采购收货</span>
-        <span class="muted-3">待收货清单 ›</span>
-      </div>
-    </button>
+    <!-- 收货入口在页面顶部 -->
 
     <div v-if="loading && !items.length" class="loading"><div class="spinner" />加载中…</div>
     <div v-else-if="!items.length" class="empty">没有匹配的采购单</div>
@@ -140,14 +143,3 @@ function open(o) {
 
 onMounted(reload)
 </script>
-
-<style scoped>
-.to-receive {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-size: 14px;
-  border: 0;
-  margin-bottom: 10px;
-}
-</style>

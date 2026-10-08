@@ -132,14 +132,29 @@ wrangler pages deploy frontend/dist --project-name=inventory --branch=main
 「目录已空但新文件未写完」的窗口）。代价是 `dist/assets` 会累积历史 hash 文件，
 部署前若发现文件数异常增长，先手动删掉 `frontend/dist` 再构建。
 
-### git 推送
+### git 推送：由人工执行，不要自动推
 
-本机到 GitHub 的链路很慢，默认 21 秒连接超时不够，会报
-`Failed to connect to github.com port 443`。用放宽的参数：
+**分工约定**：
+
+| 动作 | 谁做 |
+|---|---|
+| `wrangler pages deploy`（部署到 Cloudflare） | **自动**，改完就部署并验证线上 |
+| `wrangler d1 migrations apply --remote` | 按需，结构变更时执行 |
+| `git commit`（提交到本地） | **自动**，每个可交付的改动一个提交 |
+| `git push`（推送到 GitHub） | **人工**，代理不要推 |
+
+即：代理负责「部署上线 + 本地提交」，**推送留给人工**。
+所以工作区出现 `main...origin/main [ahead N]` 是**正常状态**，不是遗漏，
+不要反复重试 `git push`（本机到 GitHub 链路不稳定，重试会长时间卡住）。
+
+需要推送时人工执行：
 
 ```bash
 git -c http.lowSpeedLimit=0 -c http.lowSpeedTime=999 -c http.connectTimeout=180 push origin main
 ```
+
+（放宽超时参数是因为本机到 GitHub 链路很慢，默认 21 秒连接超时不够，
+会报 `Failed to connect to github.com port 443`。）
 
 ---
 

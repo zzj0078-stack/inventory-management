@@ -37,25 +37,30 @@ const DATE_IN_PAYMENT = "COALESCE(NULLIF(voucher_date,''), substr(created_at,1,1
  *
  * 对账单要能看出"这单买卖的是什么、多少"，所以单据行要带明细。
  * 用 allInChunks 规避 D1 单语句 100 个绑定参数的上限。
+ *
+ * keyColumn 必须按表给对：单据明细表用 `order_id`，
+ * **退货明细表用 `return_id`** —— 混用会报 no such column。
+ * （曾经这里四张表统一写 order_id，因为当时测试数据里一笔退货都没有，
+ *  allInChunks 对空数组会提前返回、SQL 根本没执行，所以没暴露。）
  */
-async function loadItemsByOrder(db, itemTable, orderIds) {
+async function loadItemsByParent(db, itemTable, keyColumn, parentIds) {
   const map = new Map()
   const rows = await allInChunks(
     db,
-    orderIds,
+    parentIds,
     (ph) =>
-      `SELECT it.order_id AS oid, it.quantity AS qty,
+      `SELECT it.${keyColumn} AS pid, it.quantity AS qty,
               p.name AS pname, p.spec AS spec, p.unit AS unit
          FROM ${itemTable} it
          LEFT JOIN products p ON p.id = it.product_id
-        WHERE it.order_id IN (${ph})
+        WHERE it.${keyColumn} IN (${ph})
         ORDER BY it.id`
   )
   for (const r of rows) {
-    const key = Number(r.oid)
+    const key = Number(r.pid)
     if (!map.has(key)) map.set(key, [])
     map.get(key).push({
-      product_name: r.pname || `商品#${r.oid}`,
+      product_name: r.pname || `商品#${key}`,
       spec: r.spec || '',
       unit: r.unit || '',
       quantity: Number(r.qty || 0),
@@ -93,8 +98,9 @@ async function customerRows(db, partnerId, fallbackDate) {
     partnerId
   )
 
-  const orderItems = await loadItemsByOrder(db, 'sales_items', orders.map((o) => o.id))
-  const returnItems = await loadItemsByOrder(db, 'sale_return_items', returns.map((r) => r.id))
+  // 单据明细表用 order_id；退货明细表用 return_id（两张表列名不同）
+  const orderItems = await loadItemsByParent(db, 'sales_items', 'order_id', orders.map((o) => o.id))
+  const returnItems = await loadItemsByParent(db, 'sale_return_items', 'return_id', returns.map((r) => r.id))
 
   return [
     ...orders.map((r) => ({ ...r, kind: '销售单', items: orderItems.get(Number(r.id)) || [] })),
@@ -133,8 +139,9 @@ async function supplierRows(db, partnerId, fallbackDate) {
     partnerId
   )
 
-  const orderItems = await loadItemsByOrder(db, 'purchase_items', orders.map((o) => o.id))
-  const returnItems = await loadItemsByOrder(db, 'purchase_return_items', returns.map((r) => r.id))
+  // 单据明细表用 order_id；退货明细表用 return_id（两张表列名不同）
+  const orderItems = await loadItemsByParent(db, 'purchase_items', 'order_id', orders.map((o) => o.id))
+  const returnItems = await loadItemsByParent(db, 'purchase_return_items', 'return_id', returns.map((r) => r.id))
 
   return [
     ...orders.map((r) => ({ ...r, kind: '采购单', items: orderItems.get(Number(r.id)) || [] })),

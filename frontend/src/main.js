@@ -23,3 +23,13 @@ app.use(ElementPlus, { locale: zhCn })
 setupPermission(app)
 
 app.mount('#app')
+
+// Service Worker：让「添加到主屏幕」后能像 App 一样打开（与移动端共用同一份）。
+// 只在 https 或 localhost 下注册，失败不影响使用。
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* 注册失败（如不支持）时静默忽略，不影响功能 */
+    })
+  })
+}

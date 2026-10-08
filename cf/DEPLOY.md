@@ -328,8 +328,26 @@ toast / 底部确认弹层 / 移动优先 CSS。**桌面端一行代码都不用
 | 文件 | 作用 |
 |---|---|
 | `public/mobile-manifest.json` | standalone 显示、`start_url: /m/`、3 个图标 |
-| `public/mobile-icon-{192,512}.png` | 由 `cf/make_mobile_icons.py` 用 Pillow 生成 |
-| `public/mobile-sw.js` | Service Worker |
+| `public/mobile-icon-{192,512}.png` | 由 `cf/make_mobile_icons.py` 用 Pillow 生成（桌面端 `icon-{192,512}.png` 同一次生成） |
+| `public/sw.js` | **统一 Service Worker**（桌面端 + 移动端共用；`/mobile-sw.js` 已删除，见下） |
+
+#### ⚠️ 只有一个 Service Worker（曾是 bug）
+
+SW 的默认 scope 是脚本所在目录。两个脚本都在根目录时 scope 都是 `/`，
+而**同一 scope 只能存在一个注册** —— 桌面端注册 `/sw.js`、移动端注册
+`/mobile-sw.js` 会互相覆盖，最终生效的是「最后访问的那个页面」。
+
+现在统一为一份 `/sw.js`，`src/main.js` 与 `src/mobile/main.js` 都注册它。
+导航请求按路径选择回退 shell（`/m/*` → `/m/`，其余 → `/index.html`）。
+
+#### ⚠️ 图标必须是真正的 PNG
+
+`icon-{192,512}.png` 曾经是「SVG 内容 + `.png` 后缀」，Pages 按 `image/png`
+返回导致解析失败，**安装到主屏幕后图标空白**；且「圆角+透明」再 `convert("RGB")`
+会把透明像素变黑，四角出现黑三角。
+
+现在由 `cf/make_mobile_icons.py` 生成**满幅无透明**的 RGB PNG（`#2f6fed` + 白色「进」），
+满足 maskable 安全区要求。**图标不要手写，一律用脚本生成。**
 
 Service Worker 策略刻意保守，避免「改了却看到旧页面」这类最难查的问题：
 

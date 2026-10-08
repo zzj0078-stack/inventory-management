@@ -1,7 +1,15 @@
-"""生成移动端 PWA 图标（192 / 512）。
+"""生成 PWA 图标（192 / 512）—— 移动端与桌面端两套。
 
 用 Pillow 画一个圆角蓝底 + 白色「进」字，和登录页的视觉一致。
 512 同时当作 maskable 用 —— 因为底色是满幅的，被裁成圆形也不露白边。
+
+输出两套（同一视觉，两套文件名各自对应一个入口的 manifest）：
+  frontend/public/mobile-icon-{192,512}.png  ← mobile-manifest.json
+  frontend/public/icon-{192,512}.png         ← manifest.json（桌面端）
+
+⚠️ 图标必须是**真正的 PNG**。此前桌面端图标是「SVG 内容 + .png 后缀」，
+   Pages 会按 image/png 返回，浏览器解析失败，安装到主屏幕后图标是空白。
+   所以图标一律由本脚本生成，不要手写。
 
 用法：python cf/make_mobile_icons.py
 """
@@ -39,19 +47,21 @@ def load_font(size):
     return None
 
 
-def make_icon(size, rounded=True):
-    """满幅蓝底 + 居中白字；radius 只影响可见圆角，不影响 maskable 安全性"""
+def make_icon(size):
+    """满幅蓝底 + 居中白字。
+
+    ⚠️ 必须**满幅、无透明**：
+      - maskable 图标会被启动器裁成圆形/方形，只有中央 80% 圆是安全区。
+        透明或留白的角落被裁进来就会露底。
+      - 画「圆角 + 透明」再 convert("RGB") 会把透明像素变成**黑色**，
+        于是四角出现黑三角（历史版本就是这样）。
+    「进」字取边长的 52% 居中：其外接框角点距中心约 36.8% < 40%，落在安全区内。
+    """
     # 用 4 倍超采样再缩小，边缘更平滑
     scale = 4
     s = size * scale
-    img = Image.new("RGBA", (s, s), (0, 0, 0, 0))
+    img = Image.new("RGB", (s, s), PRIMARY)
     draw = ImageDraw.Draw(img)
-
-    if rounded:
-        radius = int(s * 0.22)
-        draw.rounded_rectangle([0, 0, s - 1, s - 1], radius=radius, fill=PRIMARY)
-    else:
-        draw.rectangle([0, 0, s - 1, s - 1], fill=PRIMARY)
 
     # 字号取边长的 52%，居中绘制
     font = load_font(int(s * 0.52))
@@ -80,12 +90,14 @@ def make_icon(size, rounded=True):
 
 def main():
     os.makedirs(OUT_DIR, exist_ok=True)
-    for size in (192, 512):
-        out = os.path.join(OUT_DIR, f"mobile-icon-{size}.png")
-        icon = make_icon(size)
-        # 转 RGB 去掉 alpha 通道，避免个别启动器显示异常
-        icon.convert("RGB").save(out, "PNG", optimize=True)
-        print(f"已生成 {out}  ({os.path.getsize(out)} bytes)")
+    # 两套图标：移动端 / 桌面端，视觉一致，只是文件名不同
+    for prefix in ("mobile-icon", "icon"):
+        for size in (192, 512):
+            out = os.path.join(OUT_DIR, f"{prefix}-{size}.png")
+            icon = make_icon(size)
+            # make_icon 已经是 RGB 满幅，直接存
+            icon.save(out, "PNG", optimize=True)
+            print(f"已生成 {out}  ({os.path.getsize(out)} bytes)")
 
 
 if __name__ == "__main__":

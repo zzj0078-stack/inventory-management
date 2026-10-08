@@ -182,7 +182,8 @@ async function main() {
     check('角色带 permission_ids', Array.isArray(r2.data?.[0]?.permission_ids))
 
     const r3 = await req('GET', '/api/auth/permissions', { token: T })
-    check('权限清单 84 条', Array.isArray(r3.data) && r3.data.length === 84, `count=${r3.data?.length}`)
+    // 85 = 84 条基线 + product:cost（查看成本价，后加的，用于隐藏进价）
+    check('权限清单 85 条', Array.isArray(r3.data) && r3.data.length === 85, `count=${r3.data?.length}`)
     check('权限带中文模块名', typeof r3.data?.[0]?.module_label === 'string', r3.data?.[0]?.module_label)
   }
 

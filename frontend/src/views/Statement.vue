@@ -91,6 +91,18 @@
             </template>
           </el-table-column>
           <el-table-column prop="doc_no" label="单号" min-width="170" show-overflow-tooltip />
+          <el-table-column label="内容（商品×数量）" min-width="240" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.items_summary">{{ row.items_summary }}</span>
+              <span v-else class="muted">-</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="数量" width="80" align="right">
+            <template #default="{ row }">
+              <span v-if="row.items_quantity">{{ row.items_quantity }}</span>
+              <span v-else class="muted">-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="增加" width="120" align="right">
             <template #default="{ row }">
               <span v-if="Number(row.increase)" class="num inc">{{ money(row.increase) }}</span>
@@ -233,6 +245,8 @@ function doPrint() {
       <td class="c">${escapeHtml(r.date)}</td>
       <td class="c">${escapeHtml(r.kind)}</td>
       <td>${escapeHtml(r.doc_no)}</td>
+      <td>${escapeHtml(r.items_summary || '-')}</td>
+      <td class="c">${r.items_quantity || '-'}</td>
       <td class="r">${Number(r.increase) ? money(r.increase) : '-'}</td>
       <td class="r">${Number(r.decrease) ? money(r.decrease) : '-'}</td>
       <td class="r b">${money(r.balance)}</td>
@@ -253,30 +267,33 @@ function doPrint() {
     <table border="1" style="width:100%;font-size:12px">
       <thead>
         <tr>
-          <th style="width:36px">#</th>
-          <th style="width:80px">日期</th>
-          <th style="width:80px">类型</th>
-          <th>单号</th>
-          <th style="width:80px">增加</th>
-          <th style="width:80px">减少</th>
-          <th style="width:90px">余额</th>
+          <th style="width:30px">#</th>
+          <th style="width:70px">日期</th>
+          <th style="width:70px">类型</th>
+          <th style="width:120px">单号</th>
+          <th>内容（商品×数量）</th>
+          <th style="width:50px">数量</th>
+          <th style="width:70px">增加</th>
+          <th style="width:70px">减少</th>
+          <th style="width:80px">余额</th>
         </tr>
         <tr>
-          <td colspan="4" class="r"><b>期初余额</b></td>
-          <td colspan="3" class="r"><b>${money(d.opening_balance)}</b></td>
+          <td colspan="5" class="r"><b>期初余额</b></td>
+          <td colspan="4" class="r"><b>${money(d.opening_balance)}</b></td>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
       <tfoot>
         <tr>
-          <td colspan="4" class="r"><b>本期合计</b></td>
+          <td colspan="5" class="r"><b>本期合计</b></td>
+          <td></td>
           <td class="r b">${money(d.total_increase)}</td>
           <td class="r b">${money(d.total_decrease)}</td>
           <td></td>
         </tr>
         <tr>
-          <td colspan="4" class="r"><b>期末余额</b></td>
-          <td colspan="3" class="r"><b>${money(d.closing_balance)}</b></td>
+          <td colspan="5" class="r"><b>期末余额</b></td>
+          <td colspan="4" class="r"><b>${money(d.closing_balance)}</b></td>
         </tr>
       </tfoot>
     </table>

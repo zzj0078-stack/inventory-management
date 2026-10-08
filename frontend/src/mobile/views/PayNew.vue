@@ -21,10 +21,33 @@
         <label class="field-label">{{ partnerLabel }} <span class="req">*</span></label>
         <!-- 占位项绑空串而非 null：null 会渲染成无 value 属性的 option，
              其 DOM value 退化为文本，点选后 v-model 会拿到「请选择…」字符串。 -->
-        <select v-model="partnerId" class="select">
+        <select v-model="partnerId" class="select" @change="onPartnerChange">
           <option value="">请选择{{ partnerLabel }}</option>
           <option v-for="p in partners" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
+      </div>
+
+      <!-- 选中往来单位后自动带出欠款，省去来回查欠款页 -->
+      <div v-if="partnerId" class="field-hint outstanding-hint">
+        <span v-if="outstandingLoading">正在读取欠款…</span>
+        <template v-else-if="outstanding !== null">
+          当前{{ partnerType === 'customer' ? '应收' : '应付' }}：
+          <!-- money0 自带 ¥，这里不要再加，否则会显示成 ¥¥400 -->
+          <b :class="outstanding > 0 ? 'amt-owed' : 'amt-clear'">{{ money0(outstanding) }}</b>
+          <template v-if="outstanding > 0 && isMainFlow">
+            <span class="muted-3">（已自动填入金额，可修改）</span>
+            <button class="btn btn-sm mt8" @click="fillOutstanding">全额</button>
+          </template>
+          <template v-else-if="outstanding > 0">
+            <span class="muted-3">（当前是退款方向，未自动填金额）</span>
+          </template>
+          <template v-else-if="outstanding < 0">
+            <span class="muted-3">（已多付，无需再付）</span>
+          </template>
+          <template v-else>
+            <span class="muted-3">（已结清）</span>
+          </template>
+        </template>
       </div>
 
       <div class="field">
@@ -75,7 +98,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
 import { toast } from '../store'
-import { money, num, today, PAY_METHODS } from '../util'
+import { money, money0, num, today, PAY_METHODS } from '../util'
 
 const route = useRoute()
 const router = useRouter()
@@ -90,8 +113,52 @@ const remark = ref('')
 const saving = ref(false)
 
 const partners = ref([])
+/** 该往来单位的当前欠款（应收/应付），null = 尚未读取 */
+const outstanding = ref(null)
+const outstandingLoading = ref(false)
 
 const partnerLabel = computed(() => (partnerType.value === 'customer' ? '客户' : '供应商'))
+
+/**
+ * 是否「收客户货款」/「付供应商货款」——只有这两个方向，
+ * 欠款额才等于本次该收/该付的金额。
+ * 另外两个方向（收供应商退款、退款给客户）金额与欠款无关，不能自动填。
+ */
+const isMainFlow = computed(
+  () =>
+    (payType.value === 1 && partnerType.value === 'customer') ||
+    (payType.value === 2 && partnerType.value === 'supplier')
+)
+
+/** 读取当前往来单位的欠款；fill=true 时把欠款额填进金额框 */
+async function loadOutstanding(fill) {
+  outstanding.value = null
+  if (!partnerId.value) return
+  outstandingLoading.value = true
+  try {
+    const res = partnerType.value === 'customer'
+      ? await api.customerOutstanding(partnerId.value)
+      : await api.supplierOutstanding(partnerId.value)
+    outstanding.value = num(res.amount)
+    if (fill && isMainFlow.value && outstanding.value > 0) {
+      amount.value = String(outstanding.value)
+    }
+  } catch {
+    outstanding.value = null
+  } finally {
+    outstandingLoading.value = false
+  }
+}
+
+function onPartnerChange() {
+  loadOutstanding(true)
+}
+
+function fillOutstanding() {
+  if (outstanding.value != null && outstanding.value > 0) {
+    amount.value = String(outstanding.value)
+  }
+}
 
 /** 借方现金科目：按收付款方式判断（与后端一致） */
 const cashAccount = computed(
@@ -130,11 +197,22 @@ const voucher = computed(() => {
 
 function setType(v) {
   payType.value = v
+  // 收/付方向变了：如果变成"收客户货款/付供应商货款"，把欠款额重新填上；
+  // 变成退款方向则清掉自动填的数字，避免误用欠款额
+  if (!partnerId.value) return
+  if (isMainFlow.value) {
+    if (outstanding.value == null) loadOutstanding(true)
+    else fillOutstanding()
+  } else if (amount.value !== '' && outstanding.value != null && num(amount.value) === outstanding.value) {
+    amount.value = ''
+  }
 }
 
 function setPartnerType(v) {
   partnerType.value = v
   partnerId.value = ''
+  amount.value = ''
+  outstanding.value = null
   loadPartners()
 }
 
@@ -196,5 +274,28 @@ onMounted(async () => {
     const id = Number(q.partner)
     if (partners.value.some((p) => p.id === id)) partnerId.value = id
   }
+  // 带参数进来同样自动带出欠款并填好金额
+  if (partnerId.value) loadOutstanding(true)
 })
 </script>
+
+<style scoped>
+.outstanding-hint {
+  margin: -4px 0 12px;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.amt-owed {
+  color: #dc2626;
+  font-size: 15px;
+}
+.amt-clear {
+  color: #16a34a;
+  font-size: 15px;
+}
+.outstanding-hint .btn {
+  margin: 0;
+}
+</style>

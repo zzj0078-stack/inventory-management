@@ -19,6 +19,7 @@
  */
 
 import { HttpError, json } from '../lib/http.js'
+import { allInChunks } from '../lib/db.js'
 import { todayLocal } from '../lib/time.js'
 
 /** 与 reports.js / calcOutstanding 一致的"已生效单据"状态 */
@@ -32,17 +33,49 @@ const DATE_IN_RETURN = 'substr(created_at,1,10)'
 const DATE_IN_PAYMENT = "COALESCE(NULLIF(voucher_date,''), substr(created_at,1,10))"
 
 /**
+ * 批量取若干单据的明细（商品名 / 规格 / 单位 / 数量），按单据 id 分组。
+ *
+ * 对账单要能看出"这单买卖的是什么、多少"，所以单据行要带明细。
+ * 用 allInChunks 规避 D1 单语句 100 个绑定参数的上限。
+ */
+async function loadItemsByOrder(db, itemTable, orderIds) {
+  const map = new Map()
+  const rows = await allInChunks(
+    db,
+    orderIds,
+    (ph) =>
+      `SELECT it.order_id AS oid, it.quantity AS qty,
+              p.name AS pname, p.spec AS spec, p.unit AS unit
+         FROM ${itemTable} it
+         LEFT JOIN products p ON p.id = it.product_id
+        WHERE it.order_id IN (${ph})
+        ORDER BY it.id`
+  )
+  for (const r of rows) {
+    const key = Number(r.oid)
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push({
+      product_name: r.pname || `商品#${r.oid}`,
+      spec: r.spec || '',
+      unit: r.unit || '',
+      quantity: Number(r.qty || 0),
+    })
+  }
+  return map
+}
+
+/**
  * 客户：增加 = 销售单 / 退款给客户；减少 = 收款 / 销售退货
  */
 async function customerRows(db, partnerId, fallbackDate) {
   const orders = await db.all(
-    `SELECT ${DATE_IN_ORDER} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec
+    `SELECT id, ${DATE_IN_ORDER} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec
        FROM sales_orders
       WHERE customer_id = ? AND status IN ${ORDER_ACTIVE}`,
     partnerId
   )
   const returns = await db.all(
-    `SELECT ${DATE_IN_RETURN} AS d, return_no AS doc_no, 0 AS inc, total_amount AS dec
+    `SELECT id, ${DATE_IN_RETURN} AS d, return_no AS doc_no, 0 AS inc, total_amount AS dec
        FROM sale_returns
       WHERE customer_id = ? AND status IN ${RETURN_ACTIVE}`,
     partnerId
@@ -60,11 +93,14 @@ async function customerRows(db, partnerId, fallbackDate) {
     partnerId
   )
 
+  const orderItems = await loadItemsByOrder(db, 'sales_items', orders.map((o) => o.id))
+  const returnItems = await loadItemsByOrder(db, 'sale_return_items', returns.map((r) => r.id))
+
   return [
-    ...orders.map((r) => ({ ...r, kind: '销售单' })),
-    ...returns.map((r) => ({ ...r, kind: '销售退货' })),
-    ...received.map((r) => ({ ...r, kind: '收款' })),
-    ...refunded.map((r) => ({ ...r, kind: '退款给客户' })),
+    ...orders.map((r) => ({ ...r, kind: '销售单', items: orderItems.get(Number(r.id)) || [] })),
+    ...returns.map((r) => ({ ...r, kind: '销售退货', items: returnItems.get(Number(r.id)) || [] })),
+    ...received.map((r) => ({ ...r, kind: '收款', items: [] })),
+    ...refunded.map((r) => ({ ...r, kind: '退款给客户', items: [] })),
   ].map((r) => ({ ...r, d: r.d || fallbackDate }))
 }
 
@@ -73,13 +109,13 @@ async function customerRows(db, partnerId, fallbackDate) {
  */
 async function supplierRows(db, partnerId, fallbackDate) {
   const orders = await db.all(
-    `SELECT ${DATE_IN_PURCHASE} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec
+    `SELECT id, ${DATE_IN_PURCHASE} AS d, order_no AS doc_no, total_amount AS inc, 0 AS dec
        FROM purchase_orders
       WHERE supplier_id = ? AND status IN ${ORDER_ACTIVE}`,
     partnerId
   )
   const returns = await db.all(
-    `SELECT ${DATE_IN_RETURN} AS d, return_no AS doc_no, 0 AS inc, total_amount AS dec
+    `SELECT id, ${DATE_IN_RETURN} AS d, return_no AS doc_no, 0 AS inc, total_amount AS dec
        FROM purchase_returns
       WHERE supplier_id = ? AND status IN ${RETURN_ACTIVE}`,
     partnerId
@@ -97,11 +133,14 @@ async function supplierRows(db, partnerId, fallbackDate) {
     partnerId
   )
 
+  const orderItems = await loadItemsByOrder(db, 'purchase_items', orders.map((o) => o.id))
+  const returnItems = await loadItemsByOrder(db, 'purchase_return_items', returns.map((r) => r.id))
+
   return [
-    ...orders.map((r) => ({ ...r, kind: '采购单' })),
-    ...returns.map((r) => ({ ...r, kind: '采购退货' })),
-    ...paid.map((r) => ({ ...r, kind: '付款' })),
-    ...refund.map((r) => ({ ...r, kind: '收供应商退款' })),
+    ...orders.map((r) => ({ ...r, kind: '采购单', items: orderItems.get(Number(r.id)) || [] })),
+    ...returns.map((r) => ({ ...r, kind: '采购退货', items: returnItems.get(Number(r.id)) || [] })),
+    ...paid.map((r) => ({ ...r, kind: '付款', items: [] })),
+    ...refund.map((r) => ({ ...r, kind: '收供应商退款', items: [] })),
   ].map((r) => ({ ...r, d: r.d || fallbackDate }))
 }
 
@@ -166,6 +205,7 @@ async function buildStatement(ctx, side) {
     totalIncrease += inc
     totalDecrease += dec
     balance += inc - dec
+    const items = r.items || []
     return {
       date: r.d,
       kind: r.kind,
@@ -173,6 +213,13 @@ async function buildStatement(ctx, side) {
       increase: inc,
       decrease: dec,
       balance,
+      // 单据/退货单的业务内容：商品、规格、单位、数量
+      items,
+      // 便于列表直接显示：商品×数量、商品×数量
+      items_summary: items
+        .map((i) => `${i.product_name}×${i.quantity}${i.unit || ''}`)
+        .join('、'),
+      items_quantity: items.reduce((s, i) => s + Number(i.quantity || 0), 0),
     }
   })
 

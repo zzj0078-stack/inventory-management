@@ -93,6 +93,16 @@
               {{ r.increase ? '+' + money0(r.increase) : '−' + money0(r.decrease) }}
             </span>
           </div>
+
+          <!-- 单据/退货单的业务内容：商品 × 数量 -->
+          <div v-if="r.items && r.items.length" class="items-line">
+            <div v-for="(it, k) in r.items" :key="k" class="item-line">
+              <span class="ellipsis">{{ it.product_name }}</span>
+              <span class="num muted-3">×{{ it.quantity }}{{ it.unit || '' }}</span>
+            </div>
+            <div class="tiny muted-3 mt8">共 {{ r.items_quantity }} 件</div>
+          </div>
+
           <div class="between mt8">
             <span class="tiny muted-3">余额</span>
             <span class="num">{{ money0(r.balance) }}</span>
@@ -234,5 +244,24 @@ onMounted(async () => {
 }
 .close {
   color: #2f6fed;
+}
+/* 单据内容：浅底块，和金额行区分开 */
+.items-line {
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #f7f8fa;
+  border-radius: 6px;
+}
+.item-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.item-line .ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

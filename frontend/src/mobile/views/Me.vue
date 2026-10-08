@@ -30,6 +30,17 @@
       </button>
     </div>
 
+    <!-- 安装到主屏幕（已安装则不显示） -->
+    <div v-if="canOfferInstall()" class="card">
+      <div class="card-title">安装到主屏幕</div>
+      <div class="tiny muted-3">
+        装到桌面后像 App 一样全屏打开，不用每次输网址。
+      </div>
+      <button class="btn btn-primary btn-block mt12" @click="openInstallGuide">
+        安装到主屏幕
+      </button>
+    </div>
+
     <!-- 常用入口 -->
     <div class="card card-tight">
       <button v-for="l in links" :key="l.to" class="list-item" @click="router.push(l.to)">
@@ -99,6 +110,8 @@ import {
   clearSession,
   toast,
   confirmSheet,
+  canOfferInstall,
+  openInstallGuide,
 } from '../store'
 
 const router = useRouter()

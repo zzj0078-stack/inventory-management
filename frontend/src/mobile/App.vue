@@ -1,6 +1,9 @@
 <template>
   <router-view />
 
+  <!-- 安装到主屏幕引导（安卓调系统安装框，iOS 给图文步骤） -->
+  <InstallGuide />
+
   <!-- 全局提示（替代 ElMessage） -->
   <div class="toast-wrap">
     <div v-for="t in toasts" :key="t.id" class="toast" :class="t.type">{{ t.message }}</div>
@@ -27,4 +30,5 @@
 
 <script setup>
 import { toasts, confirmState, resolveConfirm } from './store'
+import InstallGuide from './views/InstallGuide.vue'
 </script>

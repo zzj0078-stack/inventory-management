@@ -8,6 +8,10 @@ import { createApp } from 'vue'
 import App from './App.vue'
 import router from './router'
 import './styles.css'
+import { setupInstall } from './store'
+
+// 安装到主屏幕的引导（接管 beforeinstallprompt / appinstalled）
+setupInstall()
 
 const app = createApp(App)
 app.use(router)

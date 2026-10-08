@@ -68,6 +68,8 @@ public/
 │   │   ├── config.py      # 配置（读 .env）
 │   │   ├── database.py    # 引擎 + SQLite WAL
 │   │   └── main.py        # 应用入口（含前端静态托管）
+│   ├── alembic/           # 数据库迁移（env.py + versions/）
+│   ├── alembic.ini        # 迁移配置（纯 ASCII，URL 由 env.py 注入）
 │   ├── run.py             # 启动脚本（路径无关）
 │   ├── init_db.py         # 初始化表 + 权限 + admin
 │   ├── create_test_data.py# 演示数据
@@ -151,9 +153,48 @@ public/
 
 ## 数据库
 
-- 默认 SQLite：`backend/inventory.db`
+- 默认 SQLite：`backend/inventory.db`（路径由 `config.py` 转绝对，不受 cwd 影响）
 - 已启用 `WAL` + `busy_timeout=30s`，支持读写并发
-- 表结构由 SQLAlchemy `create_all` 生成；**新增字段需删除库重建**（无迁移框架）
+- 表结构由 SQLAlchemy 模型定义，**用 Alembic 做迁移**（见下节）
+
+### 数据库迁移（Alembic）—— 新增字段不用再删库
+
+改了 `app/models/*.py` 之后，不再需要「删库重建」，走三步：
+
+```powershell
+cd backend
+
+# 1) 生成迁移脚本（对比模型与当前库，自动写出 ALTER/CREATE）
+python -m alembic revision --autogenerate -m "add xxx column"
+
+# 2) 看一眼生成的脚本（在 alembic/versions/ 下），确认没有误删表
+#    autogenerate 不是万能的：字段重命名会被识别成「删旧列+加新列」，
+#    需要手工改成 op.alter_column(... new_column_name=...) 以免丢数据
+
+# 3) 执行迁移（数据保留）
+python -m alembic upgrade head
+```
+
+其他常用命令：
+
+| 命令 | 作用 |
+|------|------|
+| `python -m alembic current` | 查看当前库的迁移版本 |
+| `python -m alembic history` | 查看迁移历史 |
+| `python -m alembic upgrade head` | 升到最新 |
+| `python -m alembic downgrade -1` | 回退一个版本 |
+| `python -m alembic stamp head` | 只改版本号、不执行 SQL（库结构已手工同步时用） |
+
+要点：
+
+- **数据库连接复用后端配置**：`alembic/env.py` 直接读 `app.config.settings.DATABASE_URL`，
+  不在 `alembic.ini` 里重复写一份，避免两处漂移
+- **SQLite 已开 batch 模式**（`render_as_batch=True`）：SQLite 原生只支持 `ADD COLUMN`，
+  改类型/删列/改约束需要重建表，batch 模式会自动生成「建新表→拷数据→换名」
+- **`alembic.ini` 必须保持纯 ASCII**：alembic 用系统 locale 编码读它，
+  在中文 Windows（GBK）下写中文注释会直接 `UnicodeDecodeError` 崩溃
+- 本机已有库的初始化方式：先生成 baseline（对空库 autogenerate），再对现有库
+  `python -m alembic stamp head` 标记为「已在基线」，之后就能正常增量迁移
 
 ### 备份
 
@@ -186,6 +227,7 @@ python backup_db.py --restore inventory_20260101_120000.db   # 还原
 ## 已知限制
 
 1. SQLite 单文件，多实例部署需换 PostgreSQL
-2. 无数据库迁移，改模型字段需重建库
-3. 微信小程序端未开发
-4. 打印为浏览器打印，非服务端 PDF 生成
+2. 微信小程序端未开发
+3. 打印为浏览器打印，非服务端 PDF 生成
+4. Alembic 的 `--autogenerate` 不识别字段重命名（会当成删旧列+加新列），
+   重命名字段时需手工改迁移脚本，否则会丢该列数据

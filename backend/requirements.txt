@@ -4,6 +4,8 @@ uvicorn[standard]>=0.24.0
 
 # ORM / 数据库
 SQLAlchemy>=2.0.23
+# 数据库迁移：新增/修改字段用它，不必再删库重建
+alembic>=1.13
 # PostgreSQL 时启用（SQLite 无需）
 # psycopg2-binary>=2.9.9
 

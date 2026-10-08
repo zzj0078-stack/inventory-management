@@ -37,8 +37,10 @@ const routes = [
       { path: 'sales/new', name: 'saleNew', component: () => import('./views/SaleNew.vue'), meta: { title: '开销售单' } },
       { path: 'sales/:id', name: 'saleDetail', component: () => import('./views/SaleDetail.vue'), meta: { title: '销售单详情' } },
 
-      // purchase/receive 必须排在 purchase/:id 之前，否则 'receive' 会被当成 id 匹配掉
-      { path: 'purchase/receive', name: 'purchaseReceive', component: () => import('./views/PurchaseReceive.vue'), meta: { title: '采购收货' } },
+      // purchase/receive 必须排在 purchase/:id 之前，否则 'receive' 会被当成 id 匹配掉。
+      // tab: true  → 保留底部导航（它是「采购」Tab 下的页面）
+      // back: true → 同时保留返回按钮（它是从采购单列表点进来的二级页）
+      { path: 'purchase/receive', name: 'purchaseReceive', component: () => import('./views/PurchaseReceive.vue'), meta: { title: '采购收货', tab: true, back: true, staffTab: true } },
       { path: 'purchase/:id', name: 'purchaseDetail', component: () => import('./views/PurchaseDetail.vue'), meta: { title: '采购单详情' } },
 
       { path: 'customers', name: 'customers', component: () => import('./views/Customers.vue'), meta: { title: '客户欠款' } },

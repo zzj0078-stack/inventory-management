@@ -78,9 +78,20 @@ const tabs = computed(() => {
 })
 
 const title = computed(() => route.meta.title || '进销存')
-const isTabRoute = computed(() => !!route.meta.tab)
-const showTabBar = computed(() => isTabRoute.value)
-const showBack = computed(() => !isTabRoute.value)
+
+/**
+ * 底部 Tab 栏。
+ *
+ * 与返回按钮**不是互斥关系**：像「采购收货」这种既是 Tab 的子页、
+ * 又需要能退回上一层的页面，会同时声明 `tab: true` 和 `back: true`。
+ * 所以这里拆成两个独立的开关，而不是靠 `!tab` 推导。
+ */
+const showTabBar = computed(() => !!route.meta.tab)
+
+/** 顶部返回按钮：显式声明 back 的用 back，否则沿用「非 Tab 页才显示」的旧行为 */
+const showBack = computed(() =>
+  route.meta.back !== undefined ? !!route.meta.back : !route.meta.tab
+)
 
 function isActive(t) {
   // /m 只有精确匹配，否则 /m/stock、/m/sales 都会把它点亮

@@ -1,5 +1,5 @@
 <template>
-  <div class="page">
+  <div class="page with-tabbar">
     <div class="searchbar">
       <input
         v-model.trim="keyword"

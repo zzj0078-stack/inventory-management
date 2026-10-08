@@ -126,29 +126,88 @@
       }, 400);
     });
 
-    // PWA安装提示
+    // PWA 安装提示：**只提示一次**
+    //
+    // 原来关闭/安装后什么都没记，刷新页面 beforeinstallprompt 又触发，提示条反复出现。
+    // 现在记到 localStorage，任何一次明确选择（安装 / 关闭）之后都不再提示。
+    // 键名带版本号：将来若想重新提示，改 key 即可，不必让老用户清缓存。
+    var INSTALL_KEY = 'pwa_install_prompted_v1';
     var deferredPrompt = null;
+
+    function markPrompted() {
+      try {
+        localStorage.setItem(INSTALL_KEY, '1');
+      } catch (e) {
+        /* 隐私模式下 localStorage 可能不可用，忽略即可 */
+      }
+    }
+
+    function alreadyPrompted() {
+      try {
+        return localStorage.getItem(INSTALL_KEY) === '1';
+      } catch (e) {
+        return false;
+      }
+    }
+
+    /** 已安装（独立窗口打开）就永不再提示 */
+    function isStandalone() {
+      return (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        window.navigator.standalone === true
+      );
+    }
+
     window.addEventListener('beforeinstallprompt', function(e) {
       e.preventDefault();
       deferredPrompt = e;
-      document.getElementById('install-banner').classList.add('show');
+      if (alreadyPrompted() || isStandalone()) return;
+      var el = document.getElementById('install-banner');
+      if (el) el.classList.add('show');
     });
 
+    /** 收起提示条（元素可能已被移除，做存在性判断） */
+    function hideBanner() {
+      var el = document.getElementById('install-banner');
+      if (el) el.classList.remove('show');
+    }
+
     document.getElementById('install-btn').addEventListener('click', function() {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then(function(choice) {
-          if (choice.outcome === 'accepted') {
-            console.log('PWA已安装');
-          }
-          deferredPrompt = null;
-          document.getElementById('install-banner').classList.remove('show');
-        });
+      // 先记录：无论用户接受还是拒绝，都算「已问过」，不再重复提示
+      markPrompted();
+
+      // prompt() 在「非用户手势」或浏览器已自行处理时会抛错；
+      // 不用 try/catch 的话会中断后面收起提示条的代码，提示条就卡在屏幕上了。
+      try {
+        if (deferredPrompt) {
+          deferredPrompt.prompt();
+          deferredPrompt.userChoice
+            .then(function() {
+              deferredPrompt = null;
+              hideBanner();
+            })
+            .catch(function() {
+              deferredPrompt = null;
+              hideBanner();
+            });
+        } else {
+          hideBanner();
+        }
+      } catch (e) {
+        deferredPrompt = null;
+        hideBanner();
       }
     });
 
     document.getElementById('install-close').addEventListener('click', function() {
-      document.getElementById('install-banner').classList.remove('show');
+      markPrompted();
+      hideBanner();
+    });
+
+    // 装好了就把提示条收掉（比如从浏览器菜单安装的）
+    window.addEventListener('appinstalled', function() {
+      markPrompted();
+      hideBanner();
     });
 
     // 防止双击缩放

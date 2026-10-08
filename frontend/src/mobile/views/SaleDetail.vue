@@ -73,11 +73,14 @@
             只填本次实际出库的数量；可多次发货，未发齐会记为「部分发货」
           </div>
 
+          <!--
+            仓库只读展示，不提供选择：发货仓库由销售单本身决定
+            （开单时已选好），出库时必须与单据一致。
+            不传 warehouse_id 时后端会自动用单据的仓库。
+          -->
           <div class="field">
             <label class="field-label">发货仓库</label>
-            <select v-model="shipWarehouseId" class="select">
-              <option v-for="w in warehouses" :key="w.id" :value="w.id">{{ w.name }}</option>
-            </select>
+            <div class="readonly-value">{{ o.warehouse_name || '默认仓库' }}</div>
           </div>
 
           <div v-for="it in o.items" :key="it.id" class="item-row">
@@ -122,11 +125,8 @@ const router = useRouter()
 const o = ref(null)
 const loading = ref(true)
 const busy = ref(false)
-const warehouses = ref([])
-const warehousesLoaded = ref(false)
 
 const shipVisible = ref(false)
-const shipWarehouseId = ref(null)
 const shipQty = reactive({})
 
 const qtyField = 'shipped_quantity'
@@ -148,22 +148,11 @@ async function load() {
   loading.value = true
   try {
     o.value = await api.salesOrder(route.params.id)
-    shipWarehouseId.value = o.value.warehouse_id
   } catch {
     o.value = null
   } finally {
     loading.value = false
   }
-}
-
-async function ensureWarehouses() {
-  if (warehousesLoaded.value) return
-  try {
-    warehouses.value = (await api.warehouses()) || []
-  } catch {
-    warehouses.value = []
-  }
-  warehousesLoaded.value = true
 }
 
 async function approve() {
@@ -179,13 +168,9 @@ async function approve() {
   }
 }
 
-async function openShip() {
-  await ensureWarehouses()
+function openShip() {
   // 默认按「待发数量」预填
   for (const it of o.value.items) shipQty[it.id] = it.pending_quantity
-  if (!shipWarehouseId.value && warehouses.value.length) {
-    shipWarehouseId.value = warehouses.value[0].id
-  }
   shipVisible.value = true
 }
 
@@ -203,10 +188,8 @@ async function submitShip() {
 
   busy.value = true
   try {
-    const res = await api.shipSalesOrder(o.value.id, {
-      items,
-      warehouse_id: shipWarehouseId.value || undefined,
-    })
+    // 不传 warehouse_id：后端会使用单据自己的发货仓库
+    const res = await api.shipSalesOrder(o.value.id, { items })
     toast.success(res.message || '发货成功')
     shipVisible.value = false
     await load()

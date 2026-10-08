@@ -68,11 +68,14 @@
             只填本次实际到货的数量；可分多次收货，未收齐会记为「部分收货」
           </div>
 
+          <!--
+            仓库只读展示，不提供选择：收货仓库由采购单本身决定
+            （开单时已选好），入库时必须与单据一致。
+            不传 warehouse_id 时后端会自动用单据的仓库。
+          -->
           <div class="field">
             <label class="field-label">收货仓库</label>
-            <select v-model="recvWarehouseId" class="select">
-              <option v-for="w in warehouses" :key="w.id" :value="w.id">{{ w.name }}</option>
-            </select>
+            <div class="readonly-value">{{ o.warehouse_name || '默认仓库' }}</div>
           </div>
 
           <div v-for="it in o.items" :key="it.id" class="item-row">
@@ -116,11 +119,8 @@ const route = useRoute()
 const o = ref(null)
 const loading = ref(true)
 const busy = ref(false)
-const warehouses = ref([])
-const warehousesLoaded = ref(false)
 
 const recvVisible = ref(false)
-const recvWarehouseId = ref(null)
 const recvQty = reactive({})
 
 const statusText = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].t : String(s))
@@ -143,22 +143,11 @@ async function load() {
   loading.value = true
   try {
     o.value = await api.purchaseOrder(route.params.id)
-    recvWarehouseId.value = o.value.warehouse_id
   } catch {
     o.value = null
   } finally {
     loading.value = false
   }
-}
-
-async function ensureWarehouses() {
-  if (warehousesLoaded.value) return
-  try {
-    warehouses.value = (await api.warehouses()) || []
-  } catch {
-    warehouses.value = []
-  }
-  warehousesLoaded.value = true
 }
 
 async function approve() {
@@ -174,12 +163,8 @@ async function approve() {
   }
 }
 
-async function openReceive() {
-  await ensureWarehouses()
+function openReceive() {
   for (const it of o.value.items) recvQty[it.id] = it.pending_quantity
-  if (!recvWarehouseId.value && warehouses.value.length) {
-    recvWarehouseId.value = warehouses.value[0].id
-  }
   recvVisible.value = true
 }
 
@@ -195,10 +180,8 @@ async function submitReceive() {
 
   busy.value = true
   try {
-    const res = await api.receivePurchaseOrder(o.value.id, {
-      items,
-      warehouse_id: recvWarehouseId.value || undefined,
-    })
+    // 不传 warehouse_id：后端会使用单据自己的收货仓库
+    const res = await api.receivePurchaseOrder(o.value.id, { items })
     toast.success(res.message || '收货成功')
     recvVisible.value = false
     await load()

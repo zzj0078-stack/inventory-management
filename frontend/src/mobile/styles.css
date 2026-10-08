@@ -467,11 +467,25 @@ textarea.input {
   padding-right: 34px;
 }
 
+/*
+ * 只读字段展示：尺寸与 .input / .select 对齐，但灰底、无边框焦点、无下拉箭头，
+ * 让「不可编辑」一眼可辨。用于发货/收货弹层里由单据决定、不允许改的仓库。
+ */
+.readonly-value {
+  min-height: 46px;
+  padding: 11px 12px;
+  font-size: 16px;
+  line-height: 24px;
+  color: var(--text-2);
+  background: #f3f4f6;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
 .field-hint {
   font-size: 12px;
   color: var(--text-3);
-  margin-top: 5px;
-}
+  margin-top: 5px;}
 
 /* ---------------- 按钮 ---------------- */
 

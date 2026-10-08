@@ -72,21 +72,25 @@
         </div>
       </div>
 
-      <div class="center mt12">
-        <button v-if="hasMore" class="btn btn-sm" :disabled="loading" @click="loadMore">
-          {{ loading ? '加载中…' : `加载更多（还有 ${total - items.length} 条）` }}
-        </button>
-        <div v-else class="tiny muted-3">共 {{ total }} 条，已全部显示</div>
-      </div>
+      <MPager
+        :page="page"
+        :total="total"
+        :page-size="PAGE_SIZE"
+        :loading="loading"
+        @change="goPage"
+      />
     </template>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { api } from '../api'
 import { money, num } from '../util'
 import { hasPerm } from '../store'
+import MPager from '../components/MPager.vue'
+
+const PAGE_SIZE = 20
 
 const keyword = ref('')
 const warehouseId = ref(null)
@@ -98,8 +102,6 @@ const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
 
-const hasMore = computed(() => items.value.length < total.value)
-
 function stockStyle(it) {
   const q = num(it.quantity)
   if (q <= 0) return 'color:#9ca3af'
@@ -107,20 +109,20 @@ function stockStyle(it) {
   return 'color:#16a34a;font-weight:700'
 }
 
-async function fetchPage(reset) {
+/** 取指定页并整体替换列表（分页语义，不做累加） */
+async function fetchPage(p) {
   loading.value = true
   try {
     const res = await api.inventory({
-      page: page.value,
-      page_size: 20,
+      page: p,
+      page_size: PAGE_SIZE,
       keyword: keyword.value || undefined,
       warehouse_id: warehouseId.value || undefined,
       low_stock: onlyLow.value ? 'true' : undefined,
     })
-    const list = res.items || []
-    items.value = reset ? list : items.value.concat(list)
+    items.value = res.items || []
     total.value = res.total || 0
-    page.value += 1
+    page.value = p
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -130,12 +132,11 @@ async function fetchPage(reset) {
 
 function reload() {
   page.value = 1
-  items.value = []
-  fetchPage(true)
+  fetchPage(1)
 }
 
-function loadMore() {
-  fetchPage(false)
+function goPage(p) {
+  fetchPage(p).then(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
 }
 
 function pickWarehouse(id) {

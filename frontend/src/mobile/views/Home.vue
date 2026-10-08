@@ -113,11 +113,12 @@ const daily = reactive({ total_amount: 0, items: [] })
 
 const allQuicks = [
   { label: '开销售单', ico: '＋', to: '/m/sales/new', perm: 'sales:add' },
+  { label: '开采购单', ico: '采', to: '/m/purchase/new', perm: 'purchase:add' },
   { label: '登记收款', ico: '￥', to: '/m/pay/new', perm: 'finance:add' },
   { label: '客户欠款', ico: '客', to: '/m/customers', perm: 'customer:view' },
   { label: '采购收货', ico: '收', to: '/m/purchase/receive', perm: 'purchase:receive' },
   { label: '销售单', ico: '单', to: '/m/sales', perm: 'sales:view' },
-  { label: '采购单', ico: '采', to: '/m/purchase', perm: 'purchase:view' },
+  { label: '采购单', ico: '购', to: '/m/purchase', perm: 'purchase:view' },
   { label: '库存价格', ico: '库', to: '/m/stock', perm: 'inventory:view' },
   { label: '出入库明细', ico: '流', to: '/m/logs', perm: 'stocklog:view' },
 ]

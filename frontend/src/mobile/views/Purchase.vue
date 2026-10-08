@@ -68,6 +68,14 @@
         <div v-else class="tiny muted-3">共 {{ total }} 条，已全部显示</div>
       </div>
     </template>
+
+    <!-- 开采购单：与销售单页的悬浮按钮一致，按 purchase:add 控制 -->
+    <button
+      v-if="canAdd"
+      class="fab"
+      aria-label="开采购单"
+      @click="router.push('/m/purchase/new')"
+    >＋</button>
   </div>
 </template>
 
@@ -80,6 +88,7 @@ import { money, shortDate, PURCHASE_STATUS } from '../util'
 
 const router = useRouter()
 const canReceive = hasPerm('purchase:receive')
+const canAdd = hasPerm('purchase:add')
 
 const filters = [
   { label: '全部', value: null },

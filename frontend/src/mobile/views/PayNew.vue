@@ -19,8 +19,10 @@
 
       <div class="field">
         <label class="field-label">{{ partnerLabel }} <span class="req">*</span></label>
+        <!-- 占位项绑空串而非 null：null 会渲染成无 value 属性的 option，
+             其 DOM value 退化为文本，点选后 v-model 会拿到「请选择…」字符串。 -->
         <select v-model="partnerId" class="select">
-          <option :value="null">请选择{{ partnerLabel }}</option>
+          <option value="">请选择{{ partnerLabel }}</option>
           <option v-for="p in partners" :key="p.id" :value="p.id">{{ p.name }}</option>
         </select>
       </div>
@@ -79,7 +81,7 @@ const router = useRouter()
 
 const payType = ref(1)
 const partnerType = ref('customer')
-const partnerId = ref(null)
+const partnerId = ref('')   // '' = 未选择；与占位项的 value="" 对应
 const amount = ref('')
 const method = ref('现金')
 const voucherDate = ref(today())
@@ -131,7 +133,7 @@ function setType(v) {
 
 function setPartnerType(v) {
   partnerType.value = v
-  partnerId.value = null
+  partnerId.value = ''
   loadPartners()
 }
 

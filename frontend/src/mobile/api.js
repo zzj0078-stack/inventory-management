@@ -106,9 +106,10 @@ export const api = {
   approveSalesOrder: (id) => client.put(`/sales/${id}/approve`),
   shipSalesOrder: (id, data) => client.put(`/sales/${id}/ship`, data),
 
-  // 采购单（仓库收货用）
+  // 采购单（开单 + 仓库收货用）
   purchaseOrders: (params) => client.get('/purchase', { params }),
   purchaseOrder: (id) => client.get(`/purchase/${id}`),
+  createPurchaseOrder: (data) => client.post('/purchase', data),
   approvePurchaseOrder: (id) => client.put(`/purchase/${id}/approve`),
   receivePurchaseOrder: (id, data) => client.put(`/purchase/${id}/receive`, data),
 

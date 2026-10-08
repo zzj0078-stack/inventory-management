@@ -128,7 +128,8 @@
         :total="pg.total" layout="total,prev,pager,next" @change="load" />
     </el-card>
 
-    <el-dialog v-model="dlgVisible" :title="dlgTitle" width="560px">
+    <!-- 核销表格有 6 列，560px 会把「未结」「本次核销」截掉，所以加宽 -->
+    <el-dialog v-model="dlgVisible" :title="dlgTitle" width="880px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="类型" prop="type">
           <el-radio-group v-model="form.type" @change="onTypeChange">
@@ -165,6 +166,69 @@
           </div>
           <div v-if="overBalance" class="field-hint warn">{{ overHint }}</div>
         </el-form-item>
+        <!-- 核销：把这笔款分配到具体单据，才能体现哪些单已结清 -->
+        <el-form-item
+          v-if="form.partner_id && isMainFlow"
+          label="核销单据"
+        >
+          <div class="alloc-box">
+            <div class="alloc-head">
+              <span class="tiny muted">
+                <template v-if="ordersLoading">读取未清单据…</template>
+                <template v-else-if="!openOrders.length">该往来单位没有未结清的单据</template>
+                <template v-else>{{ openOrders.length }} 张未结清 · 可只核销一部分</template>
+              </span>
+              <span v-if="openOrders.length">
+                <el-button link type="primary" @click="allocOldestFirst">按最早未结自动分摊</el-button>
+                <el-button link @click="clearAlloc">清空</el-button>
+              </span>
+            </div>
+
+            <el-table v-if="openOrders.length" :data="openOrders" size="small" border>
+              <el-table-column prop="order_no" label="单号" width="130" />
+              <el-table-column prop="date" label="日期" width="95" align="center" />
+              <el-table-column label="单据金额" width="95" align="right">
+                <template #default="{ row }">{{ money(row.total_amount) }}</template>
+              </el-table-column>
+              <el-table-column label="已退货" width="85" align="right">
+                <template #default="{ row }">
+                  <span :class="{ muted: !row.returned_amount }">
+                    {{ row.returned_amount ? money(row.returned_amount) : '-' }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column label="未结" width="95" align="right">
+                <template #default="{ row }">
+                  <span class="owed">{{ money(row.outstanding) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="本次核销" min-width="130">
+                <template #default="{ row }">
+                  <el-input-number
+                    v-model="alloc[row.id]"
+                    :precision="2"
+                    :min="0"
+                    :max="row.outstanding"
+                    :controls="false"
+                    size="small"
+                    style="width:100%"
+                  />
+                </template>
+              </el-table-column>
+            </el-table>
+
+            <div v-if="openOrders.length" class="alloc-foot">
+              <span>核销合计</span>
+              <span class="num" :class="{ over: allocTotal > Number(form.amount || 0) }">
+                ¥{{ money(allocTotal) }} / ¥{{ money(Number(form.amount || 0)) }}
+              </span>
+            </div>
+            <div v-if="allocTotal > Number(form.amount || 0)" class="field-hint warn">
+              核销合计不能大于本次金额
+            </div>
+          </div>
+        </el-form-item>
+
         <el-form-item label="支付方式">
           <el-select v-model="form.payment_method" style="width:100%">
             <el-option value="现金" /><el-option value="银行转账" />
@@ -218,7 +282,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import {
   getPayments, createPayment, updatePayment, deletePayment, getReceivables,
-  getCustomers, getSuppliers, downloadExport,
+  getCustomers, getSuppliers, downloadExport, getOpenOrders,
   getCustomerOutstanding, getSupplierOutstanding
 } from '../api/modules'
 import { ElMessage } from 'element-plus'
@@ -321,6 +385,78 @@ const form = reactive({
   amount: 0, payment_method: '现金', voucher_no: '', voucher_date: '', remark: ''
 })
 
+/* ---------------- 核销 ---------------- */
+
+/** 该往来单位未结清的单据 */
+const openOrders = ref([])
+const ordersLoading = ref(false)
+/** order_id -> 本次核销金额 */
+const alloc = reactive({})
+
+const allocTotal = computed(() =>
+  Object.values(alloc).reduce((s, v) => s + (Number(v) || 0), 0)
+)
+
+/**
+ * 是否「收客户货款 / 付供应商货款」——只有这两个方向才有可核销的单据。
+ * 另外两个方向（收供应商退款、退款给客户）金额与单据无关。
+ */
+const isMainFlow = computed(
+  () =>
+    (form.type === 1 && form.partner_type === 'customer') ||
+    (form.type === 2 && form.partner_type === 'supplier')
+)
+
+async function loadOpenOrders() {
+  openOrders.value = []
+  clearAlloc()
+  if (!form.partner_id || !isMainFlow.value) return
+  ordersLoading.value = true
+  try {
+    const res = await getOpenOrders({
+      partner_type: form.partner_type,
+      partner_id: form.partner_id,
+    })
+    // 只列未结清的；已结清的没有核销意义
+    openOrders.value = (res.items || []).filter((o) => !o.settled)
+    allocOldestFirst()
+  } catch {
+    openOrders.value = []
+  } finally {
+    ordersLoading.value = false
+  }
+}
+
+/** 按日期从早到晚分配，直到用完本次金额 */
+function allocOldestFirst() {
+  clearAlloc()
+  let left = Number(form.amount || 0)
+  if (!(left > 0)) return
+  for (const o of openOrders.value) {
+    if (left <= 0) break
+    const take = Math.min(left, Number(o.outstanding || 0))
+    if (take > 0) {
+      alloc[o.id] = Math.round(take * 100) / 100
+      left = Math.round((left - take) * 100) / 100
+    }
+  }
+}
+
+function clearAlloc() {
+  for (const k of Object.keys(alloc)) delete alloc[k]
+}
+
+/** 提交用的分配数组（过滤 0 与空行） */
+function buildAllocations() {
+  return openOrders.value
+    .map((o) => ({
+      related_type: o.related_type,
+      related_id: o.id,
+      amount: Number(alloc[o.id]) || 0,
+    }))
+    .filter((a) => a.amount > 0)
+}
+
 const rules = {
   type: [{ required: true, message: '请选择类型', trigger: 'change' }],
   partner_type: [{ required: true, message: '请选择对象类型', trigger: 'change' }],
@@ -366,6 +502,8 @@ const onPartnerTypeChange = async () => {
   form.partner_id = null
   balance.value = 0
   balanceLoaded.value = false
+  openOrders.value = []
+  clearAlloc()
   await loadPartners()
 }
 
@@ -400,7 +538,11 @@ const overBalance = computed(() => {
 const loadBalance = async () => {
   balance.value = 0
   balanceLoaded.value = false
-  if (!form.partner_id) return
+  if (!form.partner_id) {
+    openOrders.value = []
+    clearAlloc()
+    return
+  }
   try {
     const r = form.partner_type === 'customer'
       ? await getCustomerOutstanding(form.partner_id)
@@ -410,6 +552,8 @@ const loadBalance = async () => {
   } catch (e) {
     // 无权限或接口异常时不阻塞录入
   }
+  // 顺带把未结清单据拉出来，供核销
+  await loadOpenOrders()
 }
 
 /* ---------- 类型 ↔ 对象类型 联动 ---------- */
@@ -504,6 +648,13 @@ const handleDelete = async (row) => {
 
 const submit = async () => {
   await formRef.value.validate()
+
+  // 核销合计不能超过本次金额（后端也会校验，这里先拦住给出即时反馈）
+  const allocs = buildAllocations()
+  if (allocTotal.value > Number(form.amount || 0) + 0.005) {
+    return ElMessage.error('核销合计不能大于本次金额')
+  }
+
   submitting.value = true
   try {
     const payload = {
@@ -514,7 +665,9 @@ const submit = async () => {
       payment_method: form.payment_method,
       voucher_no: form.voucher_no || null,
       voucher_date: form.voucher_date || null,
-      remark: form.remark
+      remark: form.remark,
+      // 传了才会替换核销明细；没有可核销单据时为 undefined，后端保留原样
+      allocations: allocs.length ? allocs : undefined,
     }
     if (editId.value) {
       await updatePayment(editId.value, payload)
@@ -674,6 +827,31 @@ onMounted(() => {
 }
 .field-hint.warn { color: #e6a23c; }
 .field-hint.ok { color: #67c23a; }
+
+/* 核销区：表格 + 合计 */
+.alloc-box {
+  width: 100%;
+}
+.alloc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.alloc-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 6px;
+  font-size: 13px;
+}
+.alloc-foot .over {
+  color: #f56c6c;
+}
+.owed {
+  color: #f56c6c;
+}
+
 /* 金额输入 + 单位 */
 .amount-input {
   display: flex;

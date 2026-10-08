@@ -52,8 +52,9 @@
         <el-table-column prop="created_at" label="时间" width="120" header-align="center">
           <template #default="{row}">{{ fmtShort(row.created_at) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="150" align="center">
+        <el-table-column label="操作" width="200" align="center">
           <template #default="{row}">
+            <el-button type="primary" link @click="openDetail(row)">详情</el-button>
             <el-button v-if="row.status===0" v-permission="'sale_return:approve'" type="success" link @click="doApprove(row)">审核</el-button>
             <el-button v-if="row.status===1" v-permission="'sale_return:receive'" type="warning" link @click="doReceive(row)">入库</el-button>
             <el-button v-if="row.status<=1" v-permission="'sale_return:cancel'" type="danger" link @click="doCancel(row)">作废</el-button>
@@ -125,18 +126,35 @@
       </el-form>
       <template #footer><el-button @click="dlgVisible=false">取消</el-button><el-button type="primary" :loading="submitting" @click="submit">提交</el-button></template>
     </el-dialog>
+
+    <!-- 退货单详情 -->
+    <ReturnDetailDialog
+      v-model="detailVisible"
+      :detail-api="getSaleReturn"
+      kind="sale"
+      :row="detailRow"
+    />
   </div>
 </template>
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { getSaleReturns, createSaleReturn, approveSaleReturn, receiveSaleReturn, cancelSaleReturn } from '../api/modules'
+import { getSaleReturns, getSaleReturn, createSaleReturn, approveSaleReturn, receiveSaleReturn, cancelSaleReturn } from '../api/modules'
 import { getSaleReturnable, getSaleReturnAvailable } from '../api/modules'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { confirmAction, confirmCancel } from '../utils/confirm'
 import { fmtShort } from '../utils/format'
+import ReturnDetailDialog from '../components/ReturnDetailDialog.vue'
 const st = { 0: { t: 'info', l: '待审核' }, 1: { t: 'warning', l: '已审核' }, 2: { t: 'success', l: '已退货' }, 3: { t: 'danger', l: '已作废' } }
 const fmt = d => d ? new Date(d).toLocaleString() : '-'
 const loading = ref(false), submitting = ref(false), list = ref([]), dlgVisible = ref(false)
+
+/* 详情弹层 */
+const detailVisible = ref(false)
+const detailRow = ref(null)
+const openDetail = (row) => {
+  detailRow.value = row
+  detailVisible.value = true
+}
 const sf = reactive({ keyword: '', status: null })
 const pg = reactive({ page: 1, size: 20, total: 0 })
 const summary = reactive({ all: 0, active: 0, draft: 0, void: 0, count: 0 })

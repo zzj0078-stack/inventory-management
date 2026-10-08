@@ -82,6 +82,7 @@ export const deleteRole = (id) => api.delete(`/auth/roles/${id}`)
 
 // 销售退货
 export const getSaleReturns = (params) => api.get('/ext/sale-returns', { params })
+export const getSaleReturn = (id) => api.get(`/ext/sale-returns/${id}`)
 export const getSaleReturnAvailable = (orderId) => api.get(`/ext/sale-returns/available/${orderId}`)
 export const getSaleReturnable = (params) => api.get('/ext/sale-returns/returnable', { params })
 export const createSaleReturn = (data) => api.post('/ext/sale-returns', data)
@@ -91,6 +92,7 @@ export const cancelSaleReturn = (id) => api.put(`/ext/sale-returns/${id}/cancel`
 
 // 采购退货
 export const getPurchaseReturns = (params) => api.get('/ext/purchase-returns', { params })
+export const getPurchaseReturn = (id) => api.get(`/ext/purchase-returns/${id}`)
 export const getPurchaseReturnAvailable = (orderId) => api.get(`/ext/purchase-returns/available/${orderId}`)
 export const getPurchaseReturnable = (params) => api.get('/ext/purchase-returns/returnable', { params })
 export const createPurchaseReturn = (data) => api.post('/ext/purchase-returns', data)

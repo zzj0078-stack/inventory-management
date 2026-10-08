@@ -3,7 +3,7 @@
     <div class="login-brand">
       <div class="login-logo">进</div>
       <h1>进销存 · 移动端</h1>
-      <p>业务员 / 仓库 外出办公</p>
+      <p>员工开单发货 · 老板看数审批</p>
     </div>
 
     <form class="card" @submit.prevent="submit">

@@ -109,12 +109,19 @@ export const api = {
   // 采购单（仓库收货用）
   purchaseOrders: (params) => client.get('/purchase', { params }),
   purchaseOrder: (id) => client.get(`/purchase/${id}`),
+  approvePurchaseOrder: (id) => client.put(`/purchase/${id}/approve`),
   receivePurchaseOrder: (id, data) => client.put(`/purchase/${id}/receive`, data),
 
   // 收付款
   payments: (params) => client.get('/ext/payments', { params }),
   createPayment: (data) => client.post('/ext/payments', data),
   receivables: () => client.get('/ext/receivables'),
+
+  // 报表（老板界面用）
+  salesReport: (params) => client.get('/ext/reports/sales', { params }),
+  purchaseReport: (params) => client.get('/ext/reports/purchase', { params }),
+  profitReport: (params) => client.get('/ext/reports/profit', { params }),
+  inventoryReport: () => client.get('/ext/reports/inventory'),
 
   // 出入库明细
   stockLogs: (params) => client.get('/ext/stock-logs', { params }),

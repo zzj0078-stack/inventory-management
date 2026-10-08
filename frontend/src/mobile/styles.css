@@ -233,6 +233,69 @@ body {
   word-break: break-all;
 }
 
+/* 整行可点击的 kv（用 <button> 实现，需要抹掉按钮默认样式） */
+.kv-tap {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.kv-tap:active {
+  background: rgba(16, 24, 40, 0.05);
+}
+
+/* 排行榜：名称 + 横条 + 金额（报表页用） */
+.rank {
+  padding: 8px 0;
+}
+
+.rank + .rank {
+  border-top: 1px solid var(--line, rgba(16, 24, 40, 0.06));
+}
+
+.rank-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 14px;
+  margin-bottom: 6px;
+}
+
+.rank-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rank-amt {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.rank-track {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(16, 24, 40, 0.06);
+  overflow: hidden;
+}
+
+.rank-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--primary, #2f6fed);
+}
+
+.rank-sub {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+
 /* ---------------- 数据卡（库存/单据/客户 通用）---------------- */
 
 .stat-grid {

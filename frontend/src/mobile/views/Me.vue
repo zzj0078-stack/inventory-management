@@ -8,12 +8,26 @@
           <div class="bold" style="font-size: 17px">{{ u.full_name || u.username || '—' }}</div>
           <div class="small muted mt8">{{ u.username }}</div>
           <div class="mt8">
-            <span class="chip" :class="isAdmin ? 'red' : 'gray'">
+            <span class="chip" :class="isAdmin ? 'red' : isBossRole ? 'orange' : 'gray'">
               {{ isAdmin ? '超级管理员' : u.role_label || u.role_name || '未分配角色' }}
+            </span>
+            <span v-if="isBossRole" class="chip" :class="isBossView ? '' : 'gray'" style="margin-left: 6px">
+              {{ viewLabel }}
             </span>
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- 界面切换（仅老板角色可见） -->
+    <div v-if="isBossRole" class="card">
+      <div class="card-title">界面</div>
+      <div class="tiny muted-3">
+        老板界面看经营数据与审核；员工界面用于开单、发货、收货等日常操作。
+      </div>
+      <button class="btn btn-block mt12" @click="toggleView">
+        切换到{{ isBossView ? '员工' : '老板' }}界面
+      </button>
     </div>
 
     <!-- 常用入口 -->
@@ -75,7 +89,17 @@
 import { reactive, ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
-import { session, isAdmin, clearSession, toast, confirmSheet } from '../store'
+import {
+  session,
+  isAdmin,
+  isBossRole,
+  isBossView,
+  setViewMode,
+  hasPerm,
+  clearSession,
+  toast,
+  confirmSheet,
+} from '../store'
 
 const router = useRouter()
 
@@ -85,12 +109,23 @@ const initial = computed(() => {
   return String(name).slice(0, 1)
 })
 
-const links = [
-  { label: '客户欠款', to: '/m/customers' },
-  { label: '销售单', to: '/m/sales' },
-  { label: '采购收货', to: '/m/purchase' },
-  { label: '出入库明细', to: '/m/logs' },
+const viewLabel = computed(() => (isBossView.value ? '老板界面' : '员工界面'))
+
+function toggleView() {
+  const toBoss = !isBossView.value
+  setViewMode(toBoss ? 'boss' : 'staff')
+  // 换界面同时换落地页，否则会停在一个跟新 Tab 不匹配的页面上
+  router.replace(toBoss ? '/m/boss' : '/m')
+}
+
+/** 只显示当前账号有权限的入口，避免点进去吃 403 */
+const allLinks = [
+  { label: '客户欠款', to: '/m/customers', perm: 'customer:view' },
+  { label: '销售单', to: '/m/sales', perm: 'sales:view' },
+  { label: '采购收货', to: '/m/purchase', perm: 'purchase:receive' },
+  { label: '出入库明细', to: '/m/logs', perm: 'stocklog:view' },
 ]
+const links = allLinks.filter((l) => hasPerm(l.perm))
 
 const pwdVisible = ref(false)
 const saving = ref(false)

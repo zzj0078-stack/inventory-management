@@ -28,6 +28,41 @@ export function today() {
   }).format(new Date())
 }
 
+/**
+ * 报表用的日期区间。
+ *
+ * 全部基于 `today()`（业务时区）做纯日期加减，再用 UTC 计算 ——
+ * 这样不会因为手机本地时区与业务时区差一天而把区间算错。
+ */
+const asDate = (s) => {
+  const [y, m, d] = s.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d))
+}
+const fmt = (dt) => dt.toISOString().slice(0, 10)
+
+/** 本月 1 号 → 今天 */
+export function thisMonth() {
+  const t = today()
+  return { start: t.slice(0, 8) + '01', end: t }
+}
+
+/** 上月 1 号 → 上月最后一天 */
+export function lastMonth() {
+  const t = today()
+  const [y, m] = t.split('-').map(Number)
+  return {
+    start: fmt(new Date(Date.UTC(y, m - 2, 1))),
+    end: fmt(new Date(Date.UTC(y, m - 1, 0))),
+  }
+}
+
+/** 近 n 天（含今天）：起始日 → 今天 */
+export function recentDays(n) {
+  const t = asDate(today())
+  t.setUTCDate(t.getUTCDate() - (n - 1))
+  return { start: fmt(t), end: today() }
+}
+
 /** 销售单状态 → 文案 + 标签配色 */
 export const SALE_STATUS = {
   0: { t: '草稿', c: 'gray' },

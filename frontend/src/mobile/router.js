@@ -5,7 +5,7 @@
  * 与桌面端是两个独立 SPA，互不影响。
  */
 import { createRouter, createWebHistory } from 'vue-router'
-import { session, clearSession } from './store'
+import { session, clearSession, isBossRole, isBossView, applyDefaultView } from './store'
 import { api, setUnauthorizedHandler } from './api'
 
 const routes = [
@@ -19,9 +19,18 @@ const routes = [
     path: '/m',
     component: () => import('./views/Shell.vue'),
     children: [
-      { path: '', name: 'home', component: () => import('./views/Home.vue'), meta: { title: '工作台', tab: true } },
-      { path: 'stock', name: 'stock', component: () => import('./views/Stock.vue'), meta: { title: '库存价格', tab: true } },
-      { path: 'sales', name: 'sales', component: () => import('./views/Sales.vue'), meta: { title: '销售单', tab: true } },
+      // ---- 员工界面 ----
+      { path: '', name: 'home', component: () => import('./views/Home.vue'), meta: { title: '工作台', tab: true, staffTab: true } },
+      { path: 'stock', name: 'stock', component: () => import('./views/Stock.vue'), meta: { title: '库存价格', tab: true, staffTab: true } },
+      { path: 'sales', name: 'sales', component: () => import('./views/Sales.vue'), meta: { title: '销售单', tab: true, staffTab: true } },
+
+      // ---- 老板界面 ----
+      { path: 'boss', name: 'bossHome', component: () => import('./views/boss/Dashboard.vue'), meta: { title: '经营看板', tab: true, boss: true } },
+      { path: 'boss/approve', name: 'bossApprove', component: () => import('./views/boss/Approve.vue'), meta: { title: '待我审核', tab: true, boss: true } },
+      { path: 'boss/reports', name: 'bossReports', component: () => import('./views/boss/Reports.vue'), meta: { title: '经营报表', tab: true, boss: true } },
+      { path: 'boss/debts', name: 'bossDebts', component: () => import('./views/boss/Debts.vue'), meta: { title: '欠款排行', boss: true } },
+
+      // ---- 两端共用 ----
       { path: 'me', name: 'me', component: () => import('./views/Me.vue'), meta: { title: '我的', tab: true } },
 
       { path: 'sales/new', name: 'saleNew', component: () => import('./views/SaleNew.vue'), meta: { title: '开销售单' } },
@@ -63,6 +72,8 @@ export async function loadSession() {
     session.permissions = (perms && perms.permissions) || []
     session.roleName = perms && perms.role_name
     session.state = '已加载'
+    // 角色已知了，落定界面模式（老板默认老板界面，其余强制员工界面）
+    applyDefaultView()
     return true
   } catch {
     clearSession()
@@ -70,12 +81,17 @@ export async function loadSession() {
   }
 }
 
+/** 进入 App 的落地页：老板 → 经营看板，员工 → 工作台 */
+function landing() {
+  return isBossView.value ? { name: 'bossHome' } : { name: 'home' }
+}
+
 router.beforeEach(async (to) => {
   if (to.meta.public) {
-    // 已登录还去登录页 → 回工作台
+    // 已登录还去登录页 → 回落地页
     if (session.token) {
       const ok = await loadSession()
-      if (ok) return { name: 'home' }
+      if (ok) return landing()
     }
     return true
   }
@@ -86,6 +102,12 @@ router.beforeEach(async (to) => {
 
   const ok = await loadSession()
   if (!ok) return { name: 'login', query: { redirect: to.fullPath } }
+
+  // 老板界面下「工作台」就是经营看板
+  if (to.name === 'home' && isBossView.value) return { name: 'bossHome' }
+
+  // 老板专属页面：员工访问一律回自己的落地页
+  if (to.meta.boss && !isBossRole.value) return landing()
 
   return true
 })

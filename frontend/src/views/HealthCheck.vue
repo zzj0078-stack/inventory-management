@@ -32,7 +32,16 @@
         style="margin-bottom:16px"
       />
 
-      <el-table :data="result.issues" v-loading="loading" border stripe style="width:100%">
+      <!-- 没有问题时不要渲染空表格：否则会同时出现
+           「数据正常」提示 + 空表 + 「暂无问题」，看起来像坏了 -->
+      <el-table
+        v-if="result.issues.length"
+        :data="result.issues"
+        v-loading="loading"
+        border
+        stripe
+        style="width:100%"
+      >
         <el-table-column label="级别" width="90" align="center">
           <template #default="{ row }">
             <el-tag :type="row.level === 'error' ? 'danger' : 'warning'" size="small">

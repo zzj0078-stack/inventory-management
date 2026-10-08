@@ -184,6 +184,107 @@ async function collectIssues(db) {
     })
   }
 
+  // ---------------- 核销数据（收付款分配） ----------------
+  //
+  // 这块以前完全没有检查。payment_allocations 是判断单据是否结清的唯一依据，
+  // 一旦出现孤儿或超额，单据的结清状态就是错的，而且界面上看不出来。
+
+  // 1) 核销记录指向已删除的收付款 —— 可自动清理
+  await checkRefs(
+    'payment_allocations',
+    'payment_id',
+    'payments',
+    '收付款',
+    true,
+    'delete_orphan_allocations'
+  )
+
+  // 2) 核销记录指向已删除的单据 —— 可自动清理
+  //    这类孤儿最危险：单据没了，分配还在，会一直虚增该单的已结金额
+  for (const [rt, table, label] of [
+    ['sales_order', 'sales_orders', '销售单'],
+    ['purchase_order', 'purchase_orders', '采购单'],
+  ]) {
+    const rows = await db.all(
+      `SELECT pa.related_id AS rid, COUNT(*) AS n, GROUP_CONCAT(pa.id) AS ids
+         FROM payment_allocations pa
+         LEFT JOIN ${table} o ON o.id = pa.related_id
+        WHERE pa.related_type = ? AND o.id IS NULL
+        GROUP BY pa.related_id`,
+      rt
+    )
+    for (const r of rows) {
+      const ids = String(r.ids || '')
+        .split(',')
+        .map((x) => Number.parseInt(x, 10))
+        .filter((x) => Number.isFinite(x))
+      issues.push({
+        level: 'error',
+        table: 'payment_allocations',
+        ref_id: r.rid,
+        row_ids: ids,
+        message: `${label} #${r.rid} 已不存在，但有 ${r.n} 条核销记录指向它（核销 ID: ${ids.slice(0, 8).join(', ')}）`,
+        fix: '删除这些孤儿核销记录',
+        fixable: true,
+        fix_action: 'delete_orphan_allocations',
+      })
+    }
+  }
+
+  // 3) 核销金额超过应结金额 —— 结清状态会失真，但不自动改业务数据
+  //    应结 = 单据金额 − 已退货；与单据列表的口径保持一致
+  const overAlloc = [
+    ['sales_order', 'sales_orders', 'sale_returns', 'sales_order_id', '销售单'],
+    ['purchase_order', 'purchase_orders', 'purchase_returns', 'purchase_order_id', '采购单'],
+  ]
+  for (const [rt, ordersTable, retTable, retFk, label] of overAlloc) {
+    const rows = await db.all(
+      `SELECT o.id, o.order_no, o.total_amount,
+              COALESCE((SELECT SUM(total_amount) FROM ${retTable}
+                         WHERE ${retFk} = o.id AND status IN (1,2)), 0) AS returned,
+              COALESCE((SELECT SUM(amount) FROM payment_allocations
+                         WHERE related_type = ? AND related_id = o.id), 0) AS allocated
+         FROM ${ordersTable} o
+        WHERE o.status IN (1,2,3,5,6)`,
+      rt
+    )
+    for (const r of rows) {
+      const payable = Math.round((Number(r.total_amount || 0) - Number(r.returned || 0)) * 100) / 100
+      const allocated = Math.round(Number(r.allocated || 0) * 100) / 100
+      if (payable >= 0 && allocated > payable + 0.01) {
+        issues.push({
+          level: 'warn',
+          table: ordersTable,
+          row_ids: [r.id],
+          message:
+            `${label} ${r.order_no} 已核销 ${allocated.toFixed(2)} 超过应结 ${payable.toFixed(2)}` +
+            `（单据 ${Number(r.total_amount || 0).toFixed(2)} − 退货 ${Number(r.returned || 0).toFixed(2)}）`,
+          fix: '核对收付款的核销明细，调整分配金额',
+          fixable: false,
+          fix_action: null,
+        })
+      }
+    }
+  }
+
+  // ---------------- 单据明细孤儿 ----------------
+  // 单据被删后明细残留，会让「明细合计」等统计把已删单据算进去
+  await checkRefs('sales_items', 'order_id', 'sales_orders', '销售单', true, 'delete_orphan_items')
+  await checkRefs('purchase_items', 'order_id', 'purchase_orders', '采购单', true, 'delete_orphan_items')
+  await checkRefs('sale_return_items', 'return_id', 'sale_returns', '销售退货单', true, 'delete_orphan_items')
+  await checkRefs(
+    'purchase_return_items',
+    'return_id',
+    'purchase_returns',
+    '采购退货单',
+    true,
+    'delete_orphan_items'
+  )
+
+  // ---------------- 其它主数据引用 ----------------
+  await checkRefs('products', 'category_id', 'categories', '商品分类')
+  await checkRefs('users', 'role_id', 'roles', '角色')
+
   return issues
 }
 
@@ -240,6 +341,32 @@ async function healthCheckFix(ctx) {
 
       await db.run(`UPDATE ${ordersTable} SET total_amount = ? WHERE id = ?`, expect, oid)
       fixed.push(`${isPurchase ? '采购单' : '销售单'} ${order.order_no} 金额重算为 ${expect.toFixed(2)}`)
+    } else if (action === 'delete_orphan_allocations') {
+      // 孤儿核销记录：指向已删除的收付款或单据，留着会虚增已结金额
+      const ids = it.row_ids || []
+      if (!ids.length) continue
+      let n = 0
+      for (const part of chunk(ids)) {
+        const ph = part.map(() => '?').join(',')
+        const res = await db.run(`DELETE FROM payment_allocations WHERE id IN (${ph})`, ...part)
+        n += res && res.meta ? res.meta.changes : part.length
+      }
+      fixed.push(`删除孤儿核销记录 ${n} 条（${String(it.message).split('，')[0]}）`)
+    } else if (action === 'delete_orphan_items') {
+      // 单据明细孤儿：单据已删，明细还在
+      const ids = it.row_ids || []
+      if (!ids.length) continue
+      const table = it.table
+      if (!['sales_items', 'purchase_items', 'sale_return_items', 'purchase_return_items'].includes(table)) {
+        continue
+      }
+      let n = 0
+      for (const part of chunk(ids)) {
+        const ph = part.map(() => '?').join(',')
+        const res = await db.run(`DELETE FROM ${table} WHERE id IN (${ph})`, ...part)
+        n += res && res.meta ? res.meta.changes : part.length
+      }
+      fixed.push(`删除孤儿明细 ${n} 条（${table}）`)
     }
   }
 

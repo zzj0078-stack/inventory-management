@@ -435,9 +435,29 @@ async function loadOpenOrders() {
  */
 const allocTouched = ref(false)
 
+/**
+ * 标记「本次金额变化是由核销合带回写的」，用于打断联动循环。
+ *
+ * 两个方向同时存在：
+ *   改金额 -> 重新分摊
+ *   改核销 -> 回写金额
+ * 没有这个标记会变成死循环（改核销 -> 改金额 -> 又去重分摊 -> 冲掉刚填的）。
+ */
+let amountFromAlloc = false
+
+/** 核销合计变化后，把「金额」同步成它的值 */
+function syncAmountFromAlloc() {
+  const total = Math.round(allocTotal.value * 100) / 100
+  if (Math.abs(Number(form.amount || 0) - total) < 0.005) return
+  amountFromAlloc = true
+  form.amount = total
+}
+
 /** 用户在某一行的核销输入框里改了值 */
 function onAllocEdit() {
   allocTouched.value = true
+  // 核销合计即本次金额：改明细就把金额一起改掉，两者始终一致
+  syncAmountFromAlloc()
 }
 
 /** 按日期从早到晚分配，直到用完本次金额 */
@@ -460,13 +480,22 @@ function allocOldestFirst() {
  * 金额变了就重新分摊。
  * 这是「金额与核销联动」的核心：以前改完金额必须手动再点一次自动分摊，
  * 否则显示的还是上一次金额算出来的分配，看着像算错了。
+ *
+ * flush: 'sync' 是必需的：需要在赋值那一刻就消费掉 amountFromAlloc 标记，
+ * 否则连续编辑时标记会残留，把用户下一次真正改金额的操作吞掉。
  */
 watch(
   () => form.amount,
   () => {
+    // 金额是核销回调写出来的，不要再倒回去重分摊（否则冲掉用户刚填的明细）
+    if (amountFromAlloc) {
+      amountFromAlloc = false
+      return
+    }
     if (allocTouched.value || !openOrders.value.length) return
     allocOldestFirst()
-  }
+  },
+  { flush: 'sync' }
 )
 
 function clearAlloc() {

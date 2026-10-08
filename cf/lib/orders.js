@@ -125,7 +125,7 @@ function summarize(labels) {
 }
 
 /** 单据 → 响应形状（纯函数，关联数据由调用方备好） */
-function shapeOrder(cfg, order, { items, party, warehouse, creator }) {
+function shapeOrder(cfg, order, { items, party, warehouse, creator, settledAmount }) {
   let creatorName = ''
   if (order[cfg.personField]) {
     creatorName = order[cfg.personField]
@@ -133,9 +133,34 @@ function shapeOrder(cfg, order, { items, party, warehouse, creator }) {
     creatorName = creator.full_name || creator.username || ''
   }
 
+  // 结清状态：已结金额来自收付款核销（payment_allocations）
+  const totalAmount = Number(order.total_amount || 0)
+  const settled = Number(settledAmount || 0)
+  const outstanding = Math.round((totalAmount - settled) * 100) / 100
+  // 未审核的单据不参与结清判断（还没进入结算流程）
+  const countable = (order.status ?? 0) !== 0
+  const settlement = !countable
+    ? 'na'
+    : outstanding <= 0.005 && totalAmount > 0
+      ? 'settled'
+      : settled > 0
+        ? 'partial'
+        : 'unsettled'
+
   return {
     id: order.id,
     order_no: order.order_no,
+    settled_amount: Math.round(settled * 100) / 100,
+    outstanding_amount: outstanding,
+    settlement,
+    settlement_text:
+      settlement === 'settled'
+        ? '已结清'
+        : settlement === 'partial'
+          ? '部分结清'
+          : settlement === 'unsettled'
+            ? '未结清'
+            : '未生效',
     [cfg.party.fk]: order[cfg.party.fk] ?? null,
     [cfg.dateField]: dateOf(order[cfg.dateField]),
     warehouse_id: order.warehouse_id ?? null,
@@ -202,12 +227,14 @@ async function decorate(ctx, cfg, order) {
     : null
 
   const prodMap = await loadProducts(db, rawItems)
+  const settledMap = await settledByOrder(db, cfg, [order.id])
 
   return shapeOrder(cfg, order, {
     items: shapeItems(cfg, rawItems, prodMap),
     party,
     warehouse,
     creator,
+    settledAmount: settledMap.get(Number(order.id)) || 0,
   })
 }
 
@@ -219,6 +246,32 @@ async function decorate(ctx, cfg, order) {
  * （免费 50 / 付费 1000）—— 免费计划下一页十几单就打不开了。
  * 这里顺带把列表摘要（商品名称/规格/项数）也算出来，省掉原来重复查一次明细。
  */
+/**
+ * 批量取若干单据的**已结金额**（收付款核销累加），按单据 id 分组。
+ *
+ * 结算依据是 payment_allocations：一笔收付款可以分配到多张单，
+ * 所以单据的已结金额必须把分给它的所有款项加起来。
+ *
+ * relatedType 用 cfg.base 推出（sales -> sales_order，purchase -> purchase_order），
+ * 必须与 payments.js 写入的值一致，否则永远算不出已结。
+ */
+async function settledByOrder(db, cfg, orderIds) {
+  const map = new Map()
+  if (!orderIds.length) return map
+  const relatedType = `${cfg.base}_order`
+  const rows = await allInChunks(
+    db,
+    orderIds,
+    (ph) =>
+      `SELECT related_id, COALESCE(SUM(amount), 0) AS v
+         FROM payment_allocations
+        WHERE related_type = '${relatedType}' AND related_id IN (${ph})
+        GROUP BY related_id`
+  )
+  for (const r of rows) map.set(Number(r.related_id), Number(r.v || 0))
+  return map
+}
+
 async function decorateMany(ctx, cfg, orders) {
   if (!orders.length) return []
   const { db } = ctx
@@ -264,6 +317,8 @@ async function decorateMany(ctx, cfg, orders) {
     userMap.set(u.id, u)
   }
 
+  const settledMap = await settledByOrder(db, cfg, orders.map((o) => o.id))
+
   return orders.map((o) => {
     const raw = itemsByOrder.get(o.id) || []
     const out = shapeOrder(cfg, o, {
@@ -271,6 +326,7 @@ async function decorateMany(ctx, cfg, orders) {
       party: partyMap.get(o[cfg.party.fk]) || null,
       warehouse: whMap.get(o.warehouse_id) || null,
       creator: userMap.get(o.created_by) || null,
+      settledAmount: settledMap.get(Number(o.id)) || 0,
     })
 
     // 列表摘要：直接用已经取到的明细算，不再单独查一遍

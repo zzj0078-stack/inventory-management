@@ -118,6 +118,8 @@ export const api = {
   payments: (params) => client.get('/ext/payments', { params }),
   createPayment: (data) => client.post('/ext/payments', data),
   receivables: () => client.get('/ext/receivables'),
+  /** 该往来单位未结清的单据（收付款核销用） */
+  openOrders: (params) => client.get('/ext/open-orders', { params }),
 
   // 对账单（客户应收 / 供应商应付）
   customerStatement: (params) => client.get('/ext/statement/customer', { params }),

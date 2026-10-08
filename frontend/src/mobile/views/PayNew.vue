@@ -69,6 +69,62 @@
       </div>
     </div>
 
+    <!-- 核销：把这笔款分配到具体单据，才能体现哪些单已结清 -->
+    <div v-if="partnerId && isMainFlow" class="card">
+      <div class="between">
+        <div class="card-title" style="margin:0">核销单据</div>
+        <span class="tiny muted-3">
+          <template v-if="ordersLoading">读取中…</template>
+          <template v-else>{{ openOrders.length }} 张未结清</template>
+        </span>
+      </div>
+
+      <div v-if="!ordersLoading && !openOrders.length" class="tiny muted-3 mt8">
+        该{{ partnerLabel }}没有未结清的单据
+      </div>
+
+      <template v-else>
+        <div class="field-hint" style="margin-top: 6px">
+          可只核销一部分；没填的金额算作未指定用途的预收/预付。
+        </div>
+
+        <div v-for="o in openOrders" :key="o.id" class="alloc-row">
+          <div class="grow">
+            <div class="small bold num">{{ o.order_no }}</div>
+            <div class="tiny muted-3">
+              {{ o.date }} · 单据 {{ money0(o.total_amount) }}
+              <span v-if="o.settled_amount > 0"> · 已结 {{ money0(o.settled_amount) }}</span>
+              · 未结 <span class="owed">{{ money0(o.outstanding) }}</span>
+            </div>
+          </div>
+          <input
+            v-model="alloc[o.id]"
+            class="input alloc-input"
+            type="number"
+            inputmode="decimal"
+            min="0"
+            step="0.01"
+            placeholder="0"
+          />
+        </div>
+
+        <div class="row mt12" style="gap: 8px">
+          <button class="btn btn-sm grow" @click="allocOldestFirst">按最早未结自动分摊</button>
+          <button class="btn btn-sm grow" @click="clearAlloc">清空核销</button>
+        </div>
+
+        <div class="between mt12">
+          <span class="small">核销合计</span>
+          <span class="num bold" :class="{ over: allocTotal > num(amount) }">
+            {{ money0(allocTotal) }} / {{ money0(num(amount)) }}
+          </span>
+        </div>
+        <div v-if="allocTotal > num(amount)" class="tiny" style="color:#dc2626">
+          核销合计不能大于本次金额
+        </div>
+      </template>
+    </div>
+
     <!-- 凭证预览：让用户确认借贷方向对不对 -->
     <div class="card">
       <div class="card-title">凭证预览</div>
@@ -94,7 +150,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
 import { toast } from '../store'
@@ -152,11 +208,72 @@ async function loadOutstanding(fill) {
 
 function onPartnerChange() {
   loadOutstanding(true)
+  loadOpenOrders()
+}
+
+/* ---------------- 核销 ---------------- */
+
+/** 该往来单位未结清的单据（只对"收客户货款/付供应商货款"两个方向有意义） */
+const openOrders = ref([])
+const ordersLoading = ref(false)
+/** order_id -> 本次核销金额（字符串，绑输入框） */
+const alloc = reactive({})
+
+const allocTotal = computed(() =>
+  Object.values(alloc).reduce((s, v) => s + (num(v) || 0), 0)
+)
+
+async function loadOpenOrders() {
+  openOrders.value = []
+  for (const k of Object.keys(alloc)) delete alloc[k]
+  if (!partnerId.value || !isMainFlow.value) return
+  ordersLoading.value = true
+  try {
+    const res = await api.openOrders({
+      partner_type: partnerType.value,
+      partner_id: partnerId.value,
+    })
+    // 只列未结清的；已结清的没有核销意义
+    openOrders.value = (res.items || []).filter((o) => !o.settled)
+    // 默认把本次金额按最早未结的顺序铺开，多数情况一次就对
+    allocOldestFirst()
+  } catch {
+    openOrders.value = []
+  } finally {
+    ordersLoading.value = false
+  }
+}
+
+/** 按日期从早到晚分配，直到用完本次金额（符合"先结最早的欠款"的习惯） */
+function allocOldestFirst() {
+  for (const k of Object.keys(alloc)) delete alloc[k]
+  let left = num(amount.value)
+  if (!(left > 0)) return
+  for (const o of openOrders.value) {
+    if (left <= 0) break
+    const take = Math.min(left, num(o.outstanding))
+    if (take > 0) {
+      alloc[o.id] = String(Math.round(take * 100) / 100)
+      left = Math.round((left - take) * 100) / 100
+    }
+  }
+}
+
+function clearAlloc() {
+  for (const k of Object.keys(alloc)) delete alloc[k]
+}
+
+/** 组装成接口需要的 allocations（过滤掉空行与 0） */
+function buildAllocations() {
+  return openOrders.value
+    .map((o) => ({ related_type: o.related_type, related_id: o.id, amount: num(alloc[o.id]) || 0 }))
+    .filter((a) => a.amount > 0)
 }
 
 function fillOutstanding() {
   if (outstanding.value != null && outstanding.value > 0) {
     amount.value = String(outstanding.value)
+    allocOldestFirst()
   }
 }
 
@@ -203,8 +320,14 @@ function setType(v) {
   if (isMainFlow.value) {
     if (outstanding.value == null) loadOutstanding(true)
     else fillOutstanding()
-  } else if (amount.value !== '' && outstanding.value != null && num(amount.value) === outstanding.value) {
-    amount.value = ''
+    loadOpenOrders()
+  } else {
+    if (amount.value !== '' && outstanding.value != null && num(amount.value) === outstanding.value) {
+      amount.value = ''
+    }
+    // 退款方向没有可核销的单据，清掉
+    clearAlloc()
+    openOrders.value = []
   }
 }
 
@@ -213,6 +336,8 @@ function setPartnerType(v) {
   partnerId.value = ''
   amount.value = ''
   outstanding.value = null
+  clearAlloc()
+  openOrders.value = []
   loadPartners()
 }
 
@@ -234,6 +359,11 @@ async function submit() {
   if (!partnerId.value) return toast.error(`请选择${partnerLabel.value}`)
   if (!(num(amount.value) > 0)) return toast.error('金额必须大于 0')
 
+  const allocations = buildAllocations()
+  if (allocTotal.value > num(amount.value) + 0.005) {
+    return toast.error('核销合计不能大于本次金额')
+  }
+
   saving.value = true
   try {
     const res = await api.createPayment({
@@ -244,6 +374,8 @@ async function submit() {
       payment_method: method.value,
       voucher_date: voucherDate.value || undefined,
       remark: remark.value || undefined,
+      // 不传则后端保留"未指定用途"，与以前行为一致
+      allocations: allocations.length ? allocations : undefined,
     })
     toast.success(`已登记，凭证号 ${res.voucher_no}`)
     router.replace('/m')
@@ -297,5 +429,29 @@ onMounted(async () => {
 }
 .outstanding-hint .btn {
   margin: 0;
+}
+/* 核销明细行：左侧单号信息，右侧金额输入 */
+.alloc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.alloc-row:first-of-type {
+  border-top: 0;
+}
+.alloc-input {
+  width: 96px;
+  min-height: 38px;
+  padding: 6px 8px;
+  font-size: 15px;
+  text-align: right;
+}
+.owed {
+  color: #dc2626;
+}
+.over {
+  color: #dc2626;
 }
 </style>

@@ -106,6 +106,8 @@ export const createPayment = (data) => api.post('/ext/payments', data)
 export const updatePayment = (id, data) => api.put(`/ext/payments/${id}`, data)
 export const deletePayment = (id) => api.delete(`/ext/payments/${id}`)
 export const getReceivables = () => api.get('/ext/receivables')
+/** 该往来单位未结清的单据（收付款核销用） */
+export const getOpenOrders = (params) => api.get('/ext/open-orders', { params })
 
 // 对账单（客户应收 / 供应商应付）
 export const getCustomerStatement = (params) => api.get('/ext/statement/customer', { params })

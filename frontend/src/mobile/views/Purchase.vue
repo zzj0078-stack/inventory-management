@@ -57,7 +57,10 @@
 
           <div class="between mt8">
             <span class="tiny muted-3">{{ o.purchase_date || shortDate(o.created_at) }}</span>
-            <span v-if="o.item_count" class="tiny muted-3">{{ o.item_count }} 项</span>
+            <span class="tiny muted-3">
+              <span v-if="settleChip(o)" class="chip" :class="settleChip(o).c">{{ settleChip(o).t }}</span>
+              <template v-if="o.item_count"> {{ o.item_count }} 项</template>
+            </span>
           </div>
         </button>
       </div>
@@ -112,6 +115,17 @@ const loading = ref(false)
 
 const statusText = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].t : String(s))
 const statusChip = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].c : 'gray')
+
+/**
+ * 结清标签：数据来自后端按收付款核销算出的 settlement。
+ * 草稿单不参与结算（settlement='na'），不显示标签。
+ */
+const SETTLE_CHIP = {
+  settled: { t: '已结清', c: 'green' },
+  partial: { t: '部分结清', c: 'orange' },
+  unsettled: { t: '未结清', c: 'gray' },
+}
+const settleChip = (o) => SETTLE_CHIP[o.settlement] || null
 
 /** 取指定页并整体替换列表（分页语义，不做累加） */
 async function fetchPage(p) {

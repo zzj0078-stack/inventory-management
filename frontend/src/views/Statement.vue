@@ -244,8 +244,8 @@ function doPrint() {
       <td class="c">${i + 1}</td>
       <td class="c">${escapeHtml(r.date)}</td>
       <td class="c">${escapeHtml(r.kind)}</td>
-      <td>${escapeHtml(r.doc_no)}</td>
-      <td>${escapeHtml(r.items_summary || '-')}</td>
+      <td class="c">${escapeHtml(r.doc_no)}</td>
+      <td class="l">${escapeHtml(r.items_summary || '-')}</td>
       <td class="c">${r.items_quantity || '-'}</td>
       <td class="r">${Number(r.increase) ? money(r.increase) : '-'}</td>
       <td class="r">${Number(r.decrease) ? money(r.decrease) : '-'}</td>
@@ -264,46 +264,62 @@ function doPrint() {
         <td>电话：${escapeHtml(d.partner.phone || '-')}</td>
       </tr>
     </table>
-    <table border="1" style="width:100%;font-size:12px">
+    <table class="stmt" border="1">
+      <!--
+        A4 竖版可用宽度约 718px（794 - 左右各 10mm 页边距）。
+        按内容实际长度分配：日期/类型/单号/数量/金额列都恰好够用，
+        剩下的全部给「内容」列，避免长商品名折成三四行。
+      -->
+      <colgroup>
+        <col style="width:26px" />
+        <col style="width:62px" />
+        <col style="width:46px" />
+        <col style="width:98px" />
+        <col />
+        <col style="width:34px" />
+        <col style="width:64px" />
+        <col style="width:64px" />
+        <col style="width:68px" />
+      </colgroup>
       <thead>
         <tr>
-          <th style="width:30px">#</th>
-          <th style="width:70px">日期</th>
-          <th style="width:70px">类型</th>
-          <th style="width:120px">单号</th>
-          <th>内容（商品×数量）</th>
-          <th style="width:50px">数量</th>
-          <th style="width:70px">增加</th>
-          <th style="width:70px">减少</th>
-          <th style="width:80px">余额</th>
+          <th>#</th>
+          <th>日期</th>
+          <th>类型</th>
+          <th>单号</th>
+          <th class="l">内容（商品×数量）</th>
+          <th>数量</th>
+          <th>增加</th>
+          <th>减少</th>
+          <th>余额</th>
         </tr>
-        <tr>
+        <tr class="sub">
           <td colspan="5" class="r"><b>期初余额</b></td>
           <td colspan="4" class="r"><b>${money(d.opening_balance)}</b></td>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
       <tfoot>
-        <tr>
+        <tr class="sub">
           <td colspan="5" class="r"><b>本期合计</b></td>
           <td></td>
           <td class="r b">${money(d.total_increase)}</td>
           <td class="r b">${money(d.total_decrease)}</td>
           <td></td>
         </tr>
-        <tr>
+        <tr class="sub">
           <td colspan="5" class="r"><b>期末余额</b></td>
           <td colspan="4" class="r"><b>${money(d.closing_balance)}</b></td>
         </tr>
       </tfoot>
     </table>
-    <div style="margin-top:10px;font-size:11px">
+    <div style="margin-top:8px;font-size:10.5px;color:#333">
       口径：${sideWord.value} = 期初 + 增加 − 减少。
       ${d.side === 'customer'
         ? '增加 = 销售单 / 退款给客户；减少 = 收款 / 销售退货。'
         : '增加 = 采购单 / 收供应商退款；减少 = 付款 / 采购退货。'}
     </div>
-    <table style="width:100%;margin-top:24px;font-size:12px">
+    <table style="width:100%;margin-top:26px;font-size:12px">
       <tr>
         <td>制表：______________</td>
         <td>核对：______________</td>
@@ -313,10 +329,47 @@ function doPrint() {
     <style>
       .c { text-align: center; }
       .r { text-align: right; }
+      .l { text-align: left; }
       .b { font-weight: bold; }
-      th, td { padding: 3px 4px; }
+
+      /* 表格用固定布局，列宽才严格按 colgroup 生效 */
+      table.stmt {
+        width: 100%;
+        table-layout: fixed;
+        border-collapse: collapse;
+        font-size: 10.5px;
+        line-height: 1.35;
+      }
+      table.stmt th,
+      table.stmt td {
+        padding: 2px 3px;
+        border: 1px solid #000;
+        vertical-align: middle;
+        overflow-wrap: break-word;
+        word-break: break-word;
+      }
+      table.stmt th {
+        text-align: center;
+        background: #f0f0f0;
+      }
+      /* 数字与短字段一律不折行，避免 "1230.00" 被拆成两行 */
+      table.stmt td.c,
+      table.stmt th,
+      table.stmt td.r {
+        white-space: nowrap;
+      }
+      /* 只有内容列允许折行 */
+      table.stmt td.l {
+        white-space: normal;
+      }
+      table.stmt tr.sub td {
+        background: #fafafa;
+      }
+      /* 每页重复表头 */
       thead { display: table-header-group; }
       tfoot { display: table-footer-group; }
+      /* 整行不跨页断开 */
+      tr { page-break-inside: avoid; }
     </style>`
 
   printHtml(html, { title: '' })

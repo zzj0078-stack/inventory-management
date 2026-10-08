@@ -71,6 +71,14 @@
             <el-tag :type="statusType(row.status)" size="small">{{ statusText(row.status) }}</el-tag>
           </template>
         </el-table-column>
+        <el-table-column label="结清" width="94" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.settlement === 'settled'" type="success" size="small" effect="plain">已结清</el-tag>
+            <el-tag v-else-if="row.settlement === 'partial'" type="warning" size="small" effect="plain">部分结清</el-tag>
+            <el-tag v-else-if="row.settlement === 'unsettled'" type="info" size="small" effect="plain">未结清</el-tag>
+            <span v-else class="muted">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" label="创建时间" width="110" align="center">
           <template #default="{ row }">{{ fmtShort(row.created_at) }}</template>
         </el-table-column>

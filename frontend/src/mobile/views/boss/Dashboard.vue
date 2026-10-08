@@ -204,7 +204,7 @@ const quicks = computed(() => {
   if (hasPerm('finance:view')) list.push({ ico: '欠', label: '欠款排行', to: '/m/boss/debts' })
   if (hasPerm('sales:view')) list.push({ ico: '单', label: '销售单', to: '/m/sales' })
   if (hasPerm('inventory:view')) list.push({ ico: '库', label: '库存价格', to: '/m/stock' })
-  if (hasPerm('purchase:receive')) list.push({ ico: '收', label: '采购收货', to: '/m/purchase' })
+  if (hasPerm('purchase:receive')) list.push({ ico: '收', label: '采购收货', to: '/m/purchase/receive' })
   return list
 })
 

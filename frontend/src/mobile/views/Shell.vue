@@ -35,20 +35,27 @@
 <script setup>
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { isBossView } from '../store'
+import { isBossView, hasPerm } from '../store'
 
 const route = useRoute()
 const router = useRouter()
 
-/** 员工界面 Tab */
+/**
+ * 员工界面 Tab：工作台 / 销售 / 采购 / 库存 / 我的
+ *
+ * 带 `perm` 的按权限过滤 —— 本系统权限是角色驱动的（sales 没有 purchase:view、
+ * purchaser 没有 sales:view），不过滤就会出现点进去直接吃 403 的死 Tab。
+ * 工作台与「我的」人人可进，不设 perm。
+ */
 const STAFF_TABS = [
   { to: '/m', label: '工作台', icon: 'M3 11 12 4l9 7M5 10.5V20h14v-9.5' },
-  { to: '/m/stock', label: '库存', icon: 'M3 8.5 12 4l9 4.5v7L12 20l-9-4.5zM3 8.5 12 13l9-4.5M12 13v7' },
-  { to: '/m/sales', label: '销售单', icon: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8h5M9.5 12h5' },
+  { to: '/m/sales', label: '销售', icon: 'M6 3h12v18l-3-2-3 2-3-2-3 2zM9.5 8h5M9.5 12h5', perm: 'sales:view' },
+  { to: '/m/purchase', label: '采购', icon: 'M3 7h11v8H3zM14 10h4l3 3v2h-7M6.5 18.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM17.5 18.5a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z', perm: 'purchase:view' },
+  { to: '/m/stock', label: '库存', icon: 'M3 8.5 12 4l9 4.5v7L12 20l-9-4.5zM3 8.5 12 13l9-4.5M12 13v7', perm: 'inventory:view' },
   { to: '/m/me', label: '我的', icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20.5a8 8 0 0 1 15 0' },
 ]
 
-/** 老板界面 Tab */
+/** 老板界面 Tab（员工界面改动不影响这里） */
 const BOSS_TABS = [
   { to: '/m/boss', label: '看板', icon: 'M4 13h4v7H4zM10 9h4v11h-4zM16 5h4v15h-4z' },
   { to: '/m/boss/approve', label: '待审', icon: 'M9 12.5 11 15l4.5-5M5 3.5h14v17H5z' },
@@ -56,16 +63,18 @@ const BOSS_TABS = [
   { to: '/m/me', label: '我的', icon: 'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 20.5a8 8 0 0 1 15 0' },
 ]
 
+const staffTabs = computed(() => STAFF_TABS.filter((t) => !t.perm || hasPerm(t.perm)))
+
 /**
  * Tab 归属：
  *   - 走的是老板页面 → 老板 Tab（即使当前模式是员工，深链接进来也自洽）
- *   - 员工 Tab 页（工作台/库存/销售单）→ 员工 Tab
+ *   - 员工 Tab 页（工作台/销售/采购/库存）→ 员工 Tab
  *   - 其余（如 /m/me，两端共用）→ 按当前界面模式
  */
 const tabs = computed(() => {
   if (route.path.startsWith('/m/boss')) return BOSS_TABS
-  if (route.meta.staffTab) return STAFF_TABS
-  return isBossView.value ? BOSS_TABS : STAFF_TABS
+  if (route.meta.staffTab) return staffTabs.value
+  return isBossView.value ? BOSS_TABS : staffTabs.value
 })
 
 const title = computed(() => route.meta.title || '进销存')

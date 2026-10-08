@@ -122,7 +122,7 @@ function toggleView() {
 const allLinks = [
   { label: '客户欠款', to: '/m/customers', perm: 'customer:view' },
   { label: '销售单', to: '/m/sales', perm: 'sales:view' },
-  { label: '采购收货', to: '/m/purchase', perm: 'purchase:receive' },
+  { label: '采购收货', to: '/m/purchase/receive', perm: 'purchase:receive' },
   { label: '出入库明细', to: '/m/logs', perm: 'stocklog:view' },
 ]
 const links = allLinks.filter((l) => hasPerm(l.perm))

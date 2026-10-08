@@ -23,6 +23,7 @@ const routes = [
       { path: '', name: 'home', component: () => import('./views/Home.vue'), meta: { title: '工作台', tab: true, staffTab: true } },
       { path: 'stock', name: 'stock', component: () => import('./views/Stock.vue'), meta: { title: '库存价格', tab: true, staffTab: true } },
       { path: 'sales', name: 'sales', component: () => import('./views/Sales.vue'), meta: { title: '销售单', tab: true, staffTab: true } },
+      { path: 'purchase', name: 'purchase', component: () => import('./views/Purchase.vue'), meta: { title: '采购单', tab: true, staffTab: true } },
 
       // ---- 老板界面 ----
       { path: 'boss', name: 'bossHome', component: () => import('./views/boss/Dashboard.vue'), meta: { title: '经营看板', tab: true, boss: true } },
@@ -36,7 +37,8 @@ const routes = [
       { path: 'sales/new', name: 'saleNew', component: () => import('./views/SaleNew.vue'), meta: { title: '开销售单' } },
       { path: 'sales/:id', name: 'saleDetail', component: () => import('./views/SaleDetail.vue'), meta: { title: '销售单详情' } },
 
-      { path: 'purchase', name: 'purchase', component: () => import('./views/Purchase.vue'), meta: { title: '采购收货' } },
+      // purchase/receive 必须排在 purchase/:id 之前，否则 'receive' 会被当成 id 匹配掉
+      { path: 'purchase/receive', name: 'purchaseReceive', component: () => import('./views/PurchaseReceive.vue'), meta: { title: '采购收货' } },
       { path: 'purchase/:id', name: 'purchaseDetail', component: () => import('./views/PurchaseDetail.vue'), meta: { title: '采购单详情' } },
 
       { path: 'customers', name: 'customers', component: () => import('./views/Customers.vue'), meta: { title: '客户欠款' } },

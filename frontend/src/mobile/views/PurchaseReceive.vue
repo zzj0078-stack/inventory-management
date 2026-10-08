@@ -1,5 +1,5 @@
-﻿<template>
-  <div class="page with-tabbar">
+<template>
+  <div class="page">
     <div class="searchbar">
       <input
         v-model.trim="keyword"
@@ -23,34 +23,28 @@
       </button>
     </div>
 
-    <!-- 收货入口：只给有收货权限的人（仓库/管理员） -->
-    <button
-      v-if="canReceive"
-      class="card card-tight to-receive"
-      @click="router.push('/m/purchase/receive')"
-    >
-      <div class="between">
-        <span>采购收货</span>
-        <span class="muted-3">待收货清单 ›</span>
-      </div>
-    </button>
-
     <div v-if="loading && !items.length" class="loading"><div class="spinner" />加载中…</div>
-    <div v-else-if="!items.length" class="empty">没有匹配的采购单</div>
+    <div v-else-if="!items.length" class="empty">
+      没有待收货的采购单<br />
+      <span class="tiny">只有「已审核」「部分收货」的采购单才需要收货</span>
+    </div>
 
     <template v-else>
       <div class="card card-tight">
-        <button v-for="o in items" :key="o.id" class="list-item" @click="open(o)">
+        <button
+          v-for="o in items"
+          :key="o.id"
+          class="list-item"
+          @click="router.push(`/m/purchase/${o.id}`)"
+        >
           <div class="between">
             <span class="bold num">{{ o.order_no }}</span>
             <span class="chip" :class="statusChip(o.status)">{{ statusText(o.status) }}</span>
           </div>
-
           <div class="between mt8">
             <span class="small muted ellipsis">{{ o.supplier_name || '（未指定供应商）' }}</span>
             <span class="bold num">{{ money(o.total_amount) }}</span>
           </div>
-
           <div class="between mt8">
             <span class="tiny muted-3">{{ o.purchase_date || shortDate(o.created_at) }}</span>
             <span v-if="o.item_count" class="tiny muted-3">{{ o.item_count }} 项</span>
@@ -72,30 +66,24 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
-import { hasPerm } from '../store'
 import { money, shortDate, PURCHASE_STATUS } from '../util'
 
 const router = useRouter()
-const canReceive = hasPerm('purchase:receive')
 
 const filters = [
-  { label: '全部', value: null },
-  { label: '草稿', value: 0 },
-  { label: '已审核', value: 1 },
+  { label: '待收货', value: 1 },
   { label: '部分收货', value: 2 },
-  { label: '已收货', value: 3 },
-  { label: '已退货', value: 6 },
+  { label: '全部', value: null },
 ]
 
 const keyword = ref('')
-const status = ref(null)
+const status = ref(1)
 const items = ref([])
 const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
 
 const hasMore = computed(() => items.value.length < total.value)
-
 const statusText = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].t : String(s))
 const statusChip = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].c : 'gray')
 
@@ -134,20 +122,5 @@ function pick(v) {
   reload()
 }
 
-function open(o) {
-  router.push(`/m/purchase/${o.id}`)
-}
-
 onMounted(reload)
 </script>
-
-<style scoped>
-.to-receive {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-size: 14px;
-  border: 0;
-  margin-bottom: 10px;
-}
-</style>

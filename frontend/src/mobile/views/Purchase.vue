@@ -1,5 +1,6 @@
 <template>
-  <div class="page with-tabbar">
+  <!-- has-fab：给悬浮按钮预留底部空间，否则它会压住分页条的「下一页」 -->
+  <div class="page with-tabbar" :class="{ 'has-fab': canAdd }">
     <!--
       收货入口：只给有收货权限的人（仓库/管理员）。
       放在搜索与筛选**之前** —— 它是页面级入口，和下面的列表筛选无关，
@@ -61,12 +62,13 @@
         </button>
       </div>
 
-      <div class="center mt12">
-        <button v-if="hasMore" class="btn btn-sm" :disabled="loading" @click="loadMore">
-          {{ loading ? '加载中…' : `加载更多（还有 ${total - items.length} 条）` }}
-        </button>
-        <div v-else class="tiny muted-3">共 {{ total }} 条，已全部显示</div>
-      </div>
+      <MPager
+        :page="page"
+        :total="total"
+        :page-size="PAGE_SIZE"
+        :loading="loading"
+        @change="goPage"
+      />
     </template>
 
     <!-- 开采购单：与销售单页的悬浮按钮一致，按 purchase:add 控制 -->
@@ -80,13 +82,15 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
 import { hasPerm } from '../store'
 import { money, shortDate, PURCHASE_STATUS } from '../util'
+import MPager from '../components/MPager.vue'
 
 const router = useRouter()
+const PAGE_SIZE = 20
 const canReceive = hasPerm('purchase:receive')
 const canAdd = hasPerm('purchase:add')
 
@@ -106,24 +110,22 @@ const total = ref(0)
 const page = ref(1)
 const loading = ref(false)
 
-const hasMore = computed(() => items.value.length < total.value)
-
 const statusText = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].t : String(s))
 const statusChip = (s) => (PURCHASE_STATUS[s] ? PURCHASE_STATUS[s].c : 'gray')
 
-async function fetchPage(reset) {
+/** 取指定页并整体替换列表（分页语义，不做累加） */
+async function fetchPage(p) {
   loading.value = true
   try {
     const res = await api.purchaseOrders({
-      page: page.value,
-      page_size: 20,
+      page: p,
+      page_size: PAGE_SIZE,
       keyword: keyword.value || undefined,
       status: status.value === null ? undefined : status.value,
     })
-    const list = res.items || []
-    items.value = reset ? list : items.value.concat(list)
+    items.value = res.items || []
     total.value = res.total || 0
-    page.value += 1
+    page.value = p
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -133,12 +135,11 @@ async function fetchPage(reset) {
 
 function reload() {
   page.value = 1
-  items.value = []
-  fetchPage(true)
+  fetchPage(1)
 }
 
-function loadMore() {
-  fetchPage(false)
+function goPage(p) {
+  fetchPage(p).then(() => window.scrollTo({ top: 0, behavior: 'smooth' }))
 }
 
 function pick(v) {

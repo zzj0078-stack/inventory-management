@@ -46,11 +46,17 @@
         </div>
       </div>
 
-      <div class="tiny muted-3 center mt12">创建：{{ dateTime(o.created_at) }}</div>
+      <div class="tiny muted-3 center mt12">
+        创建：{{ dateTime(o.created_at) }}
+        <span v-if="o.approve_at"> · 审核：{{ dateTime(o.approve_at) }}</span>
+      </div>
 
-      <div v-if="canReceive" class="actionbar">
-        <button class="btn btn-primary" :disabled="busy" @click="openReceive">
-          {{ busy ? '处理中…' : '收货入库' }}
+      <div v-if="canApprove || canReceive" class="actionbar">
+        <button v-if="canApprove" class="btn btn-primary" :disabled="busy" @click="approve">
+          {{ busy ? '处理中…' : '审核' }}
+        </button>
+        <button v-if="canReceive" class="btn btn-success" :disabled="busy" @click="openReceive">
+          收货入库
         </button>
       </div>
 
@@ -125,6 +131,10 @@ const goodsAmount = computed(() => {
   return o.value.items.reduce((s, i) => s + num(i.amount), 0)
 })
 
+const canApprove = computed(
+  () => o.value && o.value.status === 0 && hasPerm('purchase:approve')
+)
+
 const canReceive = computed(
   () => o.value && (o.value.status === 1 || o.value.status === 2) && hasPerm('purchase:receive')
 )
@@ -149,6 +159,19 @@ async function ensureWarehouses() {
     warehouses.value = []
   }
   warehousesLoaded.value = true
+}
+
+async function approve() {
+  busy.value = true
+  try {
+    await api.approvePurchaseOrder(o.value.id)
+    toast.success('审核成功')
+    await load()
+  } catch (e) {
+    if (!e.friendlyMessage) toast.error(errMsg(e, '审核失败'))
+  } finally {
+    busy.value = false
+  }
 }
 
 async function openReceive() {

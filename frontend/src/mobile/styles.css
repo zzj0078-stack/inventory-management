@@ -62,6 +62,19 @@ body {
   padding-bottom: calc(var(--tabbar-h) + 16px + var(--safe-bottom));
 }
 
+/*
+ * 页面右下角有悬浮按钮（.fab）时，再多留出一个按钮的高度。
+ *
+ * .fab 是 position:fixed，永远盖在内容之上；它的纵向范围是
+ *   [tabbar-h + 16px, tabbar-h + 70px]（高 54px）
+ * 所以页面底部内边距至少要 tabbar-h + 70px 才能让最后一个元素不被盖住。
+ * 这里给到 tabbar-h + 84px（多留 14px 间距）。
+ * 受影响最明显的是列表页底部的分页条：右侧「下一页」按钮原本正好被压住。
+ */
+.page.has-fab {
+  padding-bottom: calc(var(--tabbar-h) + 84px + var(--safe-bottom));
+}
+
 .muted {
   color: var(--text-2);
 }

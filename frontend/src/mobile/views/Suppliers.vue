@@ -5,45 +5,51 @@
         v-model.trim="keyword"
         class="input"
         type="search"
-        placeholder="客户名称 / 联系人 / 电话"
+        placeholder="供应商名称 / 联系人 / 电话"
         @keyup.enter="reload"
       />
       <button class="btn btn-primary" @click="reload">查询</button>
     </div>
 
+    <div class="field-hint" style="margin: 0 0 10px">
+      这里显示的是<strong>我们欠供应商的采购款</strong>（应付）。
+      金额为正=还欠着，为负=已多付（预付），0=已结清。
+    </div>
+
     <div v-if="loading && !items.length" class="loading"><div class="spinner" />加载中…</div>
-    <div v-else-if="!items.length" class="empty">没有匹配的客户</div>
+    <div v-else-if="!items.length" class="empty">没有匹配的供应商</div>
 
     <template v-else>
       <div class="card card-tight">
-        <div v-for="c in items" :key="c.id" class="list-item">
+        <div v-for="s in items" :key="s.id" class="list-item">
           <div class="between">
             <div class="grow">
-              <div class="bold">{{ c.name }}</div>
+              <div class="bold">{{ s.name }}</div>
               <div class="tiny muted-3 mt8">
-                {{ c.contact || '无联系人' }}
-                <span v-if="c.phone"> · {{ c.phone }}</span>
+                {{ s.contact || '无联系人' }}
+                <span v-if="s.phone"> · {{ s.phone }}</span>
               </div>
             </div>
             <div class="right">
-              <div class="num" :style="outstandingStyle(c._amount)">
-                {{ c._loading ? '…' : money0(c._amount || 0) }}
+              <div class="num" :style="outstandingStyle(s._amount)">
+                {{ s._loading ? '…' : money0(s._amount || 0) }}
               </div>
               <div class="tiny muted-3 mt8">
-                {{ (c._amount || 0) > 0 ? '欠款' : (c._amount || 0) < 0 ? '预收' : '已结清' }}
+                {{ payableLabel(s._amount) }}
               </div>
             </div>
           </div>
 
           <div class="row mt8" style="gap: 8px">
-            <button class="btn btn-sm grow" @click="loadOutstanding(c, true)">刷新欠款</button>
+            <button class="btn btn-sm grow" @click="loadOutstanding(s, true)">刷新欠款</button>
             <button
               v-if="hasPerm('finance:add')"
               class="btn btn-sm btn-primary grow"
-              @click="goPay(c)"
+              @click="goPay(s)"
             >
-              登记收款
-            </button>          </div>
+              登记付款
+            </button>
+          </div>
         </div>
       </div>
 
@@ -58,6 +64,13 @@
 </template>
 
 <script setup>
+/**
+ * 采购欠款（供应商应付）。
+ *
+ * 与「客户欠款」对称：列表逐个异步拉 outstanding，不阻塞渲染。
+ * 点「登记付款」跳到收付款页，并把供应商与「付款」类型带上，
+ * 进去即可直接填金额。
+ */
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { api } from '../api'
@@ -81,35 +94,41 @@ function outstandingStyle(v) {
   return 'color:#9ca3af'
 }
 
-async function loadOutstanding(c, force = false) {
-  if (c._loaded && !force) return
-  c._loading = true
+function payableLabel(v) {
+  const n = num(v)
+  if (n > 0) return '欠款'
+  if (n < 0) return '预付'
+  return '已结清'
+}
+
+async function loadOutstanding(s, force = false) {
+  if (s._loaded && !force) return
+  s._loading = true
   try {
-    const res = await api.customerOutstanding(c.id)
-    c._amount = num(res.amount)
-    c._loaded = true
+    const res = await api.supplierOutstanding(s.id)
+    s._amount = num(res.amount)
+    s._loaded = true
   } catch {
-    c._amount = 0
+    s._amount = 0
   } finally {
-    c._loading = false
+    s._loading = false
   }
 }
 
 async function fetchPage(reset) {
   loading.value = true
   try {
-    const res = await api.customers({
+    const res = await api.suppliers({
       page: page.value,
       page_size: 20,
       keyword: keyword.value || undefined,
       status: 1,
     })
-    const list = (res.items || []).map((c) => ({ ...c, _amount: 0, _loaded: false, _loading: false }))
+    const list = (res.items || []).map((s) => ({ ...s, _amount: 0, _loaded: false, _loading: false }))
     items.value = reset ? list : items.value.concat(list)
     total.value = res.total || 0
     page.value += 1
-    // 欠款逐个异步拉，不阻塞列表渲染（客户数不多，够用）
-    items.value.forEach((c) => loadOutstanding(c))
+    items.value.forEach((s) => loadOutstanding(s))
   } catch {
     /* 拦截器已提示 */
   } finally {
@@ -127,9 +146,9 @@ function loadMore() {
   fetchPage(false)
 }
 
-/** 带客户 + 收款类型进收付款页 */
-function goPay(c) {
-  router.push({ path: '/m/pay/new', query: { partner: c.id, ptype: 'customer', type: 1 } })
+/** 带供应商 + 付款类型进收付款页 */
+function goPay(s) {
+  router.push({ path: '/m/pay/new', query: { partner: s.id, ptype: 'supplier', type: 2 } })
 }
 
 onMounted(reload)

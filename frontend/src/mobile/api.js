@@ -98,6 +98,7 @@ export const api = {
   customers: (params) => client.get('/customers', { params }),
   customerOutstanding: (id) => client.get(`/customers/${id}/outstanding`),
   suppliers: (params) => client.get('/suppliers', { params }),
+  supplierOutstanding: (id) => client.get(`/suppliers/${id}/outstanding`),
 
   // 销售单
   salesOrders: (params) => client.get('/sales', { params }),

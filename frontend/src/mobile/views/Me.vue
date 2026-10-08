@@ -134,6 +134,8 @@ function toggleView() {
 /** 只显示当前账号有权限的入口，避免点进去吃 403 */
 const allLinks = [
   { label: '客户欠款', to: '/m/customers', perm: 'customer:view' },
+  { label: '采购欠款', to: '/m/suppliers', perm: 'supplier:view' },
+  { label: '收付款', to: '/m/pay/new', perm: 'finance:add' },
   { label: '销售单', to: '/m/sales', perm: 'sales:view' },
   { label: '采购收货', to: '/m/purchase/receive', perm: 'purchase:receive' },
   { label: '出入库明细', to: '/m/logs', perm: 'stocklog:view' },

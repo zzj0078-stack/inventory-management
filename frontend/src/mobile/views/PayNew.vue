@@ -71,12 +71,13 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { api, errMsg } from '../api'
 import { toast } from '../store'
 import { money, num, today, PAY_METHODS } from '../util'
 
+const route = useRoute()
 const router = useRouter()
 
 const payType = ref(1)
@@ -175,5 +176,25 @@ async function submit() {
   }
 }
 
-onMounted(loadPartners)
+/**
+ * 从「客户欠款 / 采购欠款」跳进来时带参数，直接预选好类型与对象：
+ *   partner=<id>  往来单位
+ *   ptype=customer|supplier  对象类型
+ *   type=1|2      1=收款 2=付款
+ * 以前这里只 useRouter 没 useRoute，参数被忽略，点「登记收款」进来
+ * 还得手动再选一次客户。
+ */
+onMounted(async () => {
+  const q = route.query
+  if (q.ptype === 'supplier' || q.ptype === 'customer') partnerType.value = q.ptype
+  if (String(q.type) === '1' || String(q.type) === '2') payType.value = Number(q.type)
+
+  await loadPartners()
+
+  // 必须等 partners 加载完再设，否则下拉里没有这个选项，显示为空
+  if (q.partner) {
+    const id = Number(q.partner)
+    if (partners.value.some((p) => p.id === id)) partnerId.value = id
+  }
+})
 </script>

@@ -76,6 +76,7 @@
 
     <div class="card">
       <button class="btn btn-block" @click="router.push('/m/customers')">查看完整客户列表</button>
+      <button class="btn btn-block mt8" @click="router.push('/m/suppliers')">查看采购欠款（供应商）</button>
     </div>
   </div>
 </template>
@@ -125,9 +126,12 @@ function barWidth(amount) {
 }
 
 function goCustomer(c) {
-  // 有收款权限就直接进登记收款（带上客户），否则去客户列表
-  if (hasPerm('finance:add')) router.push({ path: '/m/pay/new', query: { partner: c.id } })
-  else router.push('/m/customers')
+  // 有收付款权限就直接进收付款（带上客户与「收款」类型），否则去客户列表
+  if (hasPerm('finance:add')) {
+    router.push({ path: '/m/pay/new', query: { partner: c.id, ptype: 'customer', type: 1 } })
+  } else {
+    router.push('/m/customers')
+  }
 }
 
 async function loadSummary() {

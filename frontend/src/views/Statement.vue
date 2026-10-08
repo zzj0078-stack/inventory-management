@@ -5,8 +5,8 @@
         <div class="card-header">
           <span>对账单</span>
           <div>
-            <el-button :disabled="!data || !data.rows.length" @click="doPrint">
-              <el-icon><Printer /></el-icon> 打印
+            <el-button :disabled="!data || !data.rows.length" :loading="exporting" @click="doExport">
+              <el-icon><Download /></el-icon> 导出CSV
             </el-button>
           </div>
         </div>
@@ -148,15 +148,15 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Printer } from '@element-plus/icons-vue'
+import { Download } from '@element-plus/icons-vue'
 import {
   getCustomerStatement,
   getSupplierStatement,
   getCustomers,
   getSuppliers,
+  downloadExport,
 } from '../api/modules'
-import { money, escapeHtml } from '../utils/format'
-import { printHtml } from '../utils/print'
+import { money } from '../utils/format'
 
 const route = useRoute()
 
@@ -234,147 +234,35 @@ async function load() {
   }
 }
 
-/** 打印：用同一份接口数据重新排版，保证与屏幕一致 */
-function doPrint() {
-  const d = data.value
-  if (!d) return
+/**
+ * 导出 CSV：不在前端重新拼表格。
+ *
+ * 导出走后端 /api/ext/export/statement，它复用对账单接口的同一份取数逻辑
+ * （buildStatementData），所以导出内容与页面看到的期初/期末一定一致 ——
+ * 前端再算一遍迟早会和对不上。
+ */
+const exporting = ref(false)
 
-  const rows = d.rows.map((r, i) => `
-    <tr>
-      <td class="c">${i + 1}</td>
-      <td class="c">${escapeHtml(r.date)}</td>
-      <td class="c">${escapeHtml(r.kind)}</td>
-      <td class="c">${escapeHtml(r.doc_no)}</td>
-      <td class="l">${escapeHtml(r.items_summary || '-')}</td>
-      <td class="c">${r.items_quantity || '-'}</td>
-      <td class="r">${Number(r.increase) ? money(r.increase) : '-'}</td>
-      <td class="r">${Number(r.decrease) ? money(r.decrease) : '-'}</td>
-      <td class="r b">${money(r.balance)}</td>
-    </tr>`).join('')
-
-  const html = `
-    <h2 style="text-align:center;margin:0 0 4px">${escapeHtml(d.side === 'customer' ? '客户对账单' : '供应商对账单')}</h2>
-    <div style="text-align:center;font-size:12px;margin-bottom:10px">
-      期间：${escapeHtml(d.start || '不限')} ~ ${escapeHtml(d.end || '不限')}
-    </div>
-    <table style="width:100%;font-size:12px;margin-bottom:8px">
-      <tr>
-        <td><b>${escapeHtml(partyLabel.value)}：</b>${escapeHtml(d.partner.name)}</td>
-        <td>联系人：${escapeHtml(d.partner.contact || '-')}</td>
-        <td>电话：${escapeHtml(d.partner.phone || '-')}</td>
-      </tr>
-    </table>
-    <table class="stmt" border="1">
-      <!--
-        A4 竖版可用宽度约 718px（794 - 左右各 10mm 页边距）。
-        按内容实际长度分配：日期/类型/单号/数量/金额列都恰好够用，
-        剩下的全部给「内容」列，避免长商品名折成三四行。
-      -->
-      <colgroup>
-        <col style="width:26px" />
-        <col style="width:62px" />
-        <col style="width:46px" />
-        <col style="width:98px" />
-        <col />
-        <col style="width:34px" />
-        <col style="width:64px" />
-        <col style="width:64px" />
-        <col style="width:68px" />
-      </colgroup>
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>日期</th>
-          <th>类型</th>
-          <th>单号</th>
-          <th class="l">内容（商品×数量）</th>
-          <th>数量</th>
-          <th>增加</th>
-          <th>减少</th>
-          <th>余额</th>
-        </tr>
-        <tr class="sub">
-          <td colspan="5" class="r"><b>期初余额</b></td>
-          <td colspan="4" class="r"><b>${money(d.opening_balance)}</b></td>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-      <tfoot>
-        <tr class="sub">
-          <td colspan="5" class="r"><b>本期合计</b></td>
-          <td></td>
-          <td class="r b">${money(d.total_increase)}</td>
-          <td class="r b">${money(d.total_decrease)}</td>
-          <td></td>
-        </tr>
-        <tr class="sub">
-          <td colspan="5" class="r"><b>期末余额</b></td>
-          <td colspan="4" class="r"><b>${money(d.closing_balance)}</b></td>
-        </tr>
-      </tfoot>
-    </table>
-    <div style="margin-top:8px;font-size:10.5px;color:#333">
-      口径：${sideWord.value} = 期初 + 增加 − 减少。
-      ${d.side === 'customer'
-        ? '增加 = 销售单 / 退款给客户；减少 = 收款 / 销售退货。'
-        : '增加 = 采购单 / 收供应商退款；减少 = 付款 / 采购退货。'}
-    </div>
-    <table style="width:100%;margin-top:26px;font-size:12px">
-      <tr>
-        <td>制表：______________</td>
-        <td>核对：______________</td>
-        <td style="text-align:right">日期：______________</td>
-      </tr>
-    </table>
-    <style>
-      .c { text-align: center; }
-      .r { text-align: right; }
-      .l { text-align: left; }
-      .b { font-weight: bold; }
-
-      /* 表格用固定布局，列宽才严格按 colgroup 生效 */
-      table.stmt {
-        width: 100%;
-        table-layout: fixed;
-        border-collapse: collapse;
-        font-size: 10.5px;
-        line-height: 1.35;
-      }
-      table.stmt th,
-      table.stmt td {
-        padding: 2px 3px;
-        border: 1px solid #000;
-        vertical-align: middle;
-        overflow-wrap: break-word;
-        word-break: break-word;
-      }
-      table.stmt th {
-        text-align: center;
-        background: #f0f0f0;
-      }
-      /* 数字与短字段一律不折行，避免 "1230.00" 被拆成两行 */
-      table.stmt td.c,
-      table.stmt th,
-      table.stmt td.r {
-        white-space: nowrap;
-      }
-      /* 只有内容列允许折行 */
-      table.stmt td.l {
-        white-space: normal;
-      }
-      table.stmt tr.sub td {
-        background: #fafafa;
-      }
-      /* 每页重复表头 */
-      thead { display: table-header-group; }
-      tfoot { display: table-footer-group; }
-      /* 整行不跨页断开 */
-      tr { page-break-inside: avoid; }
-    </style>`
-
-  printHtml(html, { title: '' })
+async function doExport() {
+  if (!qf.value.partner_id) {
+    ElMessage.warning('请先选择' + partyLabel.value)
+    return
+  }
+  exporting.value = true
+  try {
+    const params = { side: qf.value.side, partner_id: qf.value.partner_id }
+    if (range.value && range.value.length === 2) {
+      params.start = range.value[0]
+      params.end = range.value[1]
+    }
+    await downloadExport('statement', params)
+    ElMessage.success('已导出（CSV 可直接用 Excel 打开）')
+  } catch (e) {
+    ElMessage.error(e && e.message ? e.message : '导出失败')
+  } finally {
+    exporting.value = false
+  }
 }
-
 onMounted(async () => {
   await loadPartners()
   // 支持从欠款页带参数跳进来（?side=customer&partner_id=1）

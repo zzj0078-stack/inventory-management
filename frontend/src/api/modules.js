@@ -150,9 +150,11 @@ export const getHealthCheck = () => api.get('/ext/health-check')
 export const fixHealthCheck = () => api.post('/ext/health-check/fix')
 
 // 导出 CSV（带 token 下载）
-export const downloadExport = async (kind) => {
+// params 可选：对账单等需要带伙伴与日期区间
+export const downloadExport = async (kind, params) => {
   const token = localStorage.getItem('token')
-  const res = await fetch(`/api/ext/export/${kind}`, {
+  const qs = params ? '?' + new URLSearchParams(params).toString() : ''
+  const res = await fetch(`/api/ext/export/${kind}${qs}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {}
   })
   if (!res.ok) throw new Error('导出失败')

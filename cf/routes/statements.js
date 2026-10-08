@@ -159,7 +159,15 @@ const KIND_ORDER = {
   退款给客户: 3, 收供应商退款: 3,
 }
 
-async function buildStatement(ctx, side) {
+/**
+ * 组装对账单数据。
+ *
+ * 抽成独立函数是为了让 CSV 导出（system.js 的 exportCsv）能复用同一份口径 ——
+ * 导出和页面各算一遍的话，两边迟早会对不上。
+ *
+ * side: 'customer' | 'supplier'；start/end 取自 ctx.url 的查询参数。
+ */
+export async function buildStatementData(ctx, side) {
   const { db, env, url } = ctx
   const partnerId = Number(url.searchParams.get('partner_id') || 0)
   const start = (url.searchParams.get('start') || '').trim()
@@ -230,7 +238,7 @@ async function buildStatement(ctx, side) {
     }
   })
 
-  return json({
+  return {
     side,
     partner: {
       id: p.id,
@@ -247,7 +255,7 @@ async function buildStatement(ctx, side) {
     total_decrease: totalDecrease,
     closing_balance: balance,
     row_count: rows.length,
-  })
+  }
 }
 
 export const routes = [
@@ -255,12 +263,12 @@ export const routes = [
     method: 'GET',
     path: /^\/api\/ext\/statement\/customer$/,
     perm: 'customer:view',
-    handler: (ctx) => buildStatement(ctx, 'customer'),
+    handler: async (ctx) => json(await buildStatementData(ctx, 'customer')),
   },
   {
     method: 'GET',
     path: /^\/api\/ext\/statement\/supplier$/,
     perm: 'supplier:view',
-    handler: (ctx) => buildStatement(ctx, 'supplier'),
+    handler: async (ctx) => json(await buildStatementData(ctx, 'supplier')),
   },
 ]

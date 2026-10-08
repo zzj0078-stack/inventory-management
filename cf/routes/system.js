@@ -8,6 +8,7 @@ import { nowLocal, isoOf } from '../lib/time.js'
 import { logOp } from '../lib/oplog.js'
 import { chunk } from '../lib/db.js'
 import { canSeeCost } from '../lib/perms.js'
+import { buildStatementData } from './statements.js'
 
 // ==================== 操作日志 ====================
 
@@ -299,7 +300,7 @@ function stamp(env) {
 }
 
 async function exportCsv(ctx) {
-  const { db, env, params } = ctx
+  const { db, env, url, params } = ctx
   const kind = params.kind
   const ts = stamp(env)
 
@@ -456,6 +457,56 @@ async function exportCsv(ctx) {
     )
   }
 
+  // 对账单：与页面同一份口径（复用 buildStatementData），
+  // 列与打印版一致；期初/合计/期末作为独立行，方便在 Excel 里直接核对。
+  if (kind === 'statement') {
+    const side = url.searchParams.get('side') === 'supplier' ? 'supplier' : 'customer'
+    const data = await buildStatementData(ctx, side)
+    const label = side === 'customer' ? '\u5ba2\u6237' : '\u4f9b\u5e94\u5546'
+    const COLS = [
+      '\u65e5\u671f',
+      '\u7c7b\u578b',
+      '\u5355\u53f7',
+      '\u5185\u5bb9\uff08\u5546\u54c1\u00d7\u6570\u91cf\uff09',
+      '\u6570\u91cf',
+      '\u589e\u52a0',
+      '\u51cf\u5c11',
+      '\u4f59\u989d',
+    ]
+    const EIGHT = ['', '', '', '', '', '', '', '']
+    const put = (i, v) => {
+      const r = EIGHT.slice()
+      r[i] = v
+      return r
+    }
+
+    const body = data.rows.map((r) => [
+      r.date,
+      r.kind,
+      r.doc_no,
+      r.items_summary || '',
+      r.items_quantity || '',
+      Number(r.increase) || '',
+      Number(r.decrease) || '',
+      r.balance,
+    ])
+
+    return csvResponse(
+      `statement_${side}_${ts}.csv`,
+      // 第一行放抬头：CSV 里没有页眉，抬头只能作为首行存在
+      [`${label}\u5bf9\u8d26\u5355`, data.partner.name, '', '', '', '', '', ''],
+      [
+        ['\u8054\u7cfb\u4eba', data.partner.contact || '', '\u7535\u8bdd', data.partner.phone || '', '', '', '', ''],
+        ['\u671f\u95f4', `${data.start || '\u4e0d\u9650'} ~ ${data.end || '\u4e0d\u9650'}`, '', '', '', '', '', ''],
+        COLS,
+        ['\u671f\u521d\u4f59\u989d', '', '', '', '', '', '', data.opening_balance],
+        ...body,
+        ['\u672c\u671f\u5408\u8ba1', '', '', '', '', data.total_increase, data.total_decrease, ''],
+        put(7, data.closing_balance).map((v, i) => (i === 0 ? '\u671f\u672b\u4f59\u989d' : v)),
+      ]
+    )
+  }
+
   notFound('不支持的导出类型')
 }
 
@@ -467,6 +518,8 @@ const EXPORT_PERM = {
   stocklog: 'stocklog:export',
   logs: 'log:export',
   payments: 'finance:export',
+  // 对账单：客户或供应商任一权限即可（与页面路由保持一致）
+  statement: ['customer:view', 'supplier:view'],
 }
 
 /**

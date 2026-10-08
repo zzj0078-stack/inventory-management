@@ -196,6 +196,34 @@ python -m alembic upgrade head
 - 本机已有库的初始化方式：先生成 baseline（对空库 autogenerate），再对现有库
   `python -m alembic stamp head` 标记为「已在基线」，之后就能正常增量迁移
 
+### 线上库（Cloudflare D1）也用迁移，但换一套工具
+
+本地和线上是**两个库、两套迁移机制**，加字段要同时改两边：
+
+| | 本地开发 | 线上生产 |
+|---|---|---|
+| 库 | `backend/inventory.db`（SQLite） | Cloudflare D1 `inventory` |
+| 模型 | `backend/app/models/*.py` | 无 ORM，SQL 写在 `cf/routes/*.js` |
+| 工具 | `python -m alembic` | `wrangler d1 migrations` |
+| 迁移文件 | `backend/alembic/versions/*.py` | `cf/migrations/*.sql` |
+| 记录表 | `alembic_version` | `d1_migrations` |
+
+```powershell
+# 线上：新建 + 应用
+wrangler d1 migrations create inventory "add xxx column"   # 生成 cf/migrations/000N_*.sql
+# 编辑该文件，写入 ALTER TABLE t ADD COLUMN xxx ...;
+wrangler d1 migrations list  inventory --remote            # 看待应用项
+wrangler d1 migrations apply inventory --remote            # 应用（会先确认）
+
+# 应用前先导备份（含真实业务数据，务必不要提交）
+wrangler d1 export inventory --remote --output=cf/_backup_$(Get-Date -Format yyyyMMdd).sql --skip-confirmation
+```
+
+只改一边会出问题：本地能跑线上报 `no such column`，或反过来。
+另外 D1 侧没有 ORM，`cf/routes/` 里对应的读写 SQL 也要跟着改。
+
+详见 `cf/DEPLOY.md` 的「结构变更要改两边」。
+
 ### 备份
 
 ```powershell

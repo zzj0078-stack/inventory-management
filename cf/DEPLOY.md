@@ -43,7 +43,9 @@ D:\Harness\public\
 │   └── api/
 │       └── [[route]].js           # 入口：CORS + 鉴权 + 权限 + 路由分发
 └── cf/
-    ├── schema.sql                 # 25 张表 + 10 个索引（D1 版）
+    ├── migrations/                # D1 结构迁移（唯一入口）
+    │   └── 0001_baseline_schema.sql
+    ├── schema.sql                 # 基线快照（= 0001 迁移的内容，仅作参考）
     ├── seed.sql                   # 角色/权限/admin/默认仓库（由 gen_seed.py 生成）
     ├── gen_seed.py                # 从本地 SQLite 生成 seed.sql
     ├── smoke-test.mjs             # 71 项冒烟测试，本地/线上通用
@@ -72,11 +74,18 @@ D:\Harness\public\
 ## 常用命令
 
 ```bash
-# ---- 数据库 ----
-# 建表（首次或重建）
-wrangler d1 execute inventory --file=cf/schema.sql --remote
+# ---- 数据库结构变更（唯一入口：D1 migrations）----
+# 改了表结构（加字段/加表/加索引）就该新建一个迁移，不要再手改 schema.sql
+wrangler d1 migrations create inventory "add xxx column"   # 生成 cf/migrations/000N_xxx.sql
+# 编辑生成的 .sql，写入 ALTER TABLE / CREATE TABLE 等语句
+wrangler d1 migrations list  inventory --remote            # 看有哪些还没应用
+wrangler d1 migrations apply inventory --remote            # 应用到线上
+wrangler d1 migrations apply inventory --local             # 应用到本地
 
-# 灌种子（角色/权限/admin/默认仓库，幂等）
+# 应用前建议先导一份线上备份（含真实业务数据，勿提交）
+wrangler d1 export inventory --remote --output=cf/_backup_$(date +%Y%m%d).sql --skip-confirmation
+
+# ---- 灌种子（角色/权限/admin/默认仓库，幂等）----
 wrangler d1 execute inventory --file=cf/seed.sql --remote
 
 # 查看数据
@@ -97,10 +106,41 @@ node cf/smoke-test.mjs https://inventory-b4k.pages.dev    # 线上
 
 # ---- 本地联调 ----
 copy .dev.vars.example .dev.vars       # 填入随机 SECRET_KEY
-wrangler d1 execute inventory --file=cf/schema.sql --local
-wrangler d1 execute inventory --file=cf/seed.sql   --local
+wrangler d1 migrations apply inventory --local
+wrangler d1 execute inventory --file=cf/seed.sql --local
 wrangler pages dev --port 8788
 ```
+
+### 结构变更要改两边（重要）
+
+本地后端是 SQLite + Alembic，线上是 D1 + wrangler migrations，**两套机制、两个库**：
+
+| | 本地开发库 | 线上生产库 |
+|---|---|---|
+| 库 | `backend/inventory.db`（SQLite） | Cloudflare D1 `inventory` |
+| 模型定义 | `backend/app/models/*.py` | 无 ORM，手写 SQL 在 `cf/routes/*.js` |
+| 迁移工具 | `python -m alembic` | `wrangler d1 migrations` |
+| 迁移文件 | `backend/alembic/versions/*.py` | `cf/migrations/*.sql` |
+| 记录表 | `alembic_version` | `d1_migrations` |
+
+**加一个字段要同时做两件事**：
+
+```bash
+# 1) 本地：改模型 → 生成并应用 Alembic 迁移
+cd backend
+python -m alembic revision --autogenerate -m "add xxx column"
+python -m alembic upgrade head
+
+# 2) 线上：手写 D1 迁移 → 应用
+cd ..
+wrangler d1 migrations create inventory "add xxx column"
+#   编辑 cf/migrations/000N_*.sql，写入 ALTER TABLE t ADD COLUMN xxx ...;
+wrangler d1 migrations apply inventory --remote
+
+# 3) 别忘了 cf/routes/ 里对应的 SQL 读写也要跟着改（D1 侧没有 ORM）
+```
+
+只改一边的后果：本地能跑、线上报「no such column」；或线上能跑、本地报错。
 
 ---
 

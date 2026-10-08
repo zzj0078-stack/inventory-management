@@ -7,10 +7,16 @@
 #    D1 绑定名 DB，对应 database_name = inventory
 #
 #  常用命令：
-#    wrangler d1 execute inventory --file=cf/schema.sql --remote
-#    wrangler d1 execute inventory --file=cf/seed.sql   --remote
-#    wrangler pages deploy frontend/dist --project-name=inventory
-#    wrangler pages dev frontend/dist                 （本地联调）
+#    D1 结构变更（唯一入口，别再直接 execute schema.sql）：
+#      wrangler d1 migrations create inventory "add xxx column"   # 新建迁移文件
+#      wrangler d1 migrations list   inventory --remote           # 看有哪些没应用
+#      wrangler d1 migrations apply  inventory --remote           # 应用到线上
+#      wrangler d1 migrations apply  inventory --local            # 应用到本地
+#    数据/初始化：
+#      wrangler d1 execute inventory --file=cf/seed.sql --remote
+#    部署：
+#      wrangler pages deploy frontend/dist --project-name=inventory
+#      wrangler pages dev frontend/dist                           （本地联调）
 # ============================================================
 
 name = "inventory"
@@ -23,6 +29,8 @@ pages_build_output_dir = "./frontend/dist"
 binding = "DB"
 database_name = "inventory"
 database_id = "848e0f62-70d6-4d4a-9cb5-d55147f6394e"
+# 迁移目录：wrangler d1 migrations 从这里读取按序号排列的 .sql
+migrations_dir = "cf/migrations"
 
 # 商品图片存储。
 #   Workers 没有文件系统，图片必须放对象存储。

@@ -81,12 +81,15 @@
               :value="o.id"
             />
           </el-select>
-          <div class="field-hint">退货必须关联原采购单，单价与可退数量由原单带出</div>
+          <div class="field-hint">退货必须关联原采购单，单价由原单带出</div>
         </el-form-item>
 
         <el-form-item label="供应商">
           <el-input :model-value="returnInfo?.supplier_name || '（选择采购单后自动带出）'" disabled />
         </el-form-item>
+
+        <el-alert type="info" :closable="false" show-icon style="margin-bottom:10px"
+          title="采购退货要出库，可退数量 = min(原单未退数量, 当前库存)；库存为 0 的商品退不出去。" />
 
         <el-table :data="returnRows" border size="small" v-loading="orderLoading">
           <el-table-column prop="product_name" label="商品名称" min-width="150" show-overflow-tooltip />
@@ -96,6 +99,13 @@
           <el-table-column prop="product_unit" label="单位" width="55" align="center" />
           <el-table-column prop="received_quantity" label="已收货" width="75" align="right" />
           <el-table-column prop="returned_quantity" label="已退" width="65" align="right" />
+          <el-table-column label="当前库存" width="85" align="right">
+            <template #default="{ row }">
+              <span :style="{ color: Number(row.stock_quantity) > 0 ? '#303133' : '#f56c6c', fontWeight: 600 }">
+                {{ row.stock_quantity ?? '-' }}
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column prop="available_quantity" label="可退" width="65" align="right">
             <template #default="{ row }">
               <span :style="{ color: row.available_quantity > 0 ? '#67c23a' : '#909399' }">{{ row.available_quantity }}</span>
@@ -211,7 +221,13 @@ const submit = async () => {
   if (!items.length) return ElMessage.warning('请填写本次退货数量')
 
   const over = returnRows.value.find(i => Number(i.quantity) > i.available_quantity)
-  if (over) return ElMessage.error(`「${over.product_name}」退货数量超过可退 ${over.available_quantity}`)
+  if (over) {
+    return ElMessage.error(
+      over.stock_quantity !== undefined
+        ? `「${over.product_name}」可退 ${over.available_quantity}（原单可退 ${over.order_returnable_quantity}，当前库存 ${over.stock_quantity}），本次填写超出`
+        : `「${over.product_name}」退货数量超过可退 ${over.available_quantity}`
+    )
+  }
 
   submitting.value = true
   try {

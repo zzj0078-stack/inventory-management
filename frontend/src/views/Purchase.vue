@@ -177,7 +177,11 @@
       <el-alert
         v-if="returnInfo"
         :title="`来源采购单 ${returnInfo.order_no}　供应商：${returnInfo.supplier_name || '-'}　（单价为原成交价）`"
-        type="info" :closable="false" show-icon style="margin-bottom:12px" />
+        type="info" :closable="false" show-icon style="margin-bottom:8px" />
+
+      <el-alert
+        title="采购退货要出库，可退数量 = min(原单未退数量, 当前库存)；库存为 0 的商品退不出去。"
+        type="warning" :closable="false" show-icon style="margin-bottom:12px" />
 
       <el-table :data="returnRows" border size="small">
         <el-table-column prop="product_name" label="商品名称" min-width="140" show-overflow-tooltip />
@@ -187,6 +191,13 @@
         <el-table-column prop="product_unit" label="单位" width="55" align="center" />
         <el-table-column prop="received_quantity" label="已收货" width="75" align="right" />
         <el-table-column prop="returned_quantity" label="已退" width="65" align="right" />
+        <el-table-column label="当前库存" width="85" align="right">
+          <template #default="{ row }">
+            <span :style="{ color: Number(row.stock_quantity) > 0 ? '#303133' : '#f56c6c', fontWeight: 600 }">
+              {{ row.stock_quantity ?? '-' }}
+            </span>
+          </template>
+        </el-table-column>
         <el-table-column prop="available_quantity" label="可退" width="65" align="right">
           <template #default="{ row }">
             <span :style="{ color: row.available_quantity > 0 ? '#67c23a' : '#909399' }">
@@ -521,7 +532,11 @@ const submitReturn = async () => {
   }
   const over = returnRows.value.find(r => Number(r.return_qty) > r.available_quantity)
   if (over) {
-    ElMessage.error(`「${over.product_name}」退货数量超过可退 ${over.available_quantity}`)
+    ElMessage.error(
+      over.stock_quantity !== undefined
+        ? `「${over.product_name}」可退 ${over.available_quantity}（原单可退 ${over.order_returnable_quantity}，当前库存 ${over.stock_quantity}），本次填写超出`
+        : `「${over.product_name}」退货数量超过可退 ${over.available_quantity}`
+    )
     return
   }
 

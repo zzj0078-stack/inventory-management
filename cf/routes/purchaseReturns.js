@@ -51,5 +51,10 @@ export const routes = makeReturnRoutes({
     doneMessage: '出库成功',
   },
 
+  // 采购退货是「出库」：可退数量必须以当前库存为上限
+  // （货已经卖掉/调走就退不出去），出库也从本单收货的那个仓库扣。
+  // 销售退货是「入库」，不受此限，故 saleReturns.js 不开这个开关。
+  limitByStock: true,
+
   statusText: { 0: '待审核', 1: '已审核', 2: '已退货', 3: '已作废' },
 })

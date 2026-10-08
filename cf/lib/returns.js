@@ -42,6 +42,30 @@ async function returnedQtyMap(db, cfg, orderId) {
   return map
 }
 
+/**
+ * 指定仓库下这些商品的当前库存（product_id -> quantity）。
+ *
+ * 采购退货实际是「出库」，可退数量必须以库存为上限：
+ * 货已经卖掉/调走了就不在库里，想退也退不出去。
+ * warehouseId 来自数据库的整数，直接内联进 SQL（分块时参数位要留给 id）。
+ */
+async function stockQtyMap(db, warehouseId, pids) {
+  const map = new Map()
+  const ids = [...new Set((pids || []).filter(Boolean))]
+  if (!ids.length) return map
+  const wid = Number(warehouseId)
+  for (const row of await allInChunks(
+    db,
+    ids,
+    (ph) =>
+      `SELECT product_id, quantity FROM inventory
+        WHERE warehouse_id = ${wid} AND product_id IN (${ph})`
+  )) {
+    map.set(row.product_id, Number(row.quantity || 0))
+  }
+  return map
+}
+
 export function makeReturnRoutes(cfg) {
   const R = cfg.table.ret
   const RI = cfg.table.item
@@ -344,10 +368,23 @@ export function makeReturnRoutes(cfg) {
       ? await db.first(`SELECT id, name, contact, phone FROM ${P.table} WHERE id = ?`, order[P.fk])
       : null
 
+    // 采购退货（limitByStock）：可退数量还要受当前库存限制。
+    // 仓库取与本单收货相同的那个，保证「校验的库存」就是「出库要扣的库存」。
+    let wid = order.warehouse_id ?? null
+    let stockMap = new Map()
+    if (cfg.limitByStock) {
+      if (!wid) wid = await defaultWarehouseId(db, ctx.env)
+      stockMap = await stockQtyMap(db, wid, orderItems.map((i) => i.product_id))
+    }
+
     const items = orderItems.map((it) => {
       const prod = prodMap.get(it.product_id)
       const base = Number(it[cfg.source.qtyField] || 0)
       const already = returned.get(it.product_id) || 0
+      // 按原单能退多少
+      const orderRemain = Math.max(base - already, 0)
+      // 当前库存里有多少
+      const stock = cfg.limitByStock ? stockMap.get(it.product_id) || 0 : orderRemain
       return {
         product_id: it.product_id,
         product_name: prod ? prod.name : `商品#${it.product_id}`,
@@ -356,7 +393,10 @@ export function makeReturnRoutes(cfg) {
         sold_quantity: it.quantity,
         [cfg.source.qtyField]: base,
         returned_quantity: already,
-        available_quantity: Math.max(base - already, 0),
+        // 仅当 limitByStock 时有意义：当前库存 + 只按原单算的可退
+        stock_quantity: cfg.limitByStock ? stock : undefined,
+        order_returnable_quantity: orderRemain,
+        available_quantity: cfg.limitByStock ? Math.max(Math.min(orderRemain, stock), 0) : orderRemain,
         price: it.price ?? 0, // 原成交价（含税）
         tax_rate: it.tax_rate ?? 0,
       }
@@ -370,7 +410,7 @@ export function makeReturnRoutes(cfg) {
       [`${P.respPrefix}_name`]: partner ? partner.name : '',
       [`${P.respPrefix}_contact`]: partner ? partner.contact ?? '' : '',
       [`${P.respPrefix}_phone`]: partner ? partner.phone ?? '' : '',
-      warehouse_id: order.warehouse_id ?? null,
+      warehouse_id: wid,
       items,
     })
   }
@@ -394,15 +434,28 @@ export function makeReturnRoutes(cfg) {
     const baseMap = new Map(orderItems.map((i) => [i.product_id, Number(i[cfg.source.qtyField] || 0)]))
     const already = await returnedQtyMap(db, cfg, order.id)
 
+    // 可退上限 = min(原单未退数量, 当前库存)。退货要出库，库里没有就退不出去。
+    let stockMap = new Map()
+    if (cfg.limitByStock) {
+      const wid = order.warehouse_id || (await defaultWarehouseId(db, env))
+      stockMap = await stockQtyMap(db, wid, items.map((i) => Number(i.product_id)))
+    }
+
     for (const it of items) {
       const pid = Number(it.product_id)
       const qty = Number.parseInt(it.quantity, 10) || 0
       if (qty <= 0) bad('退货数量必须大于 0')
 
-      const avail = (baseMap.get(pid) || 0) - (already.get(pid) || 0)
+      const orderRemain = Math.max((baseMap.get(pid) || 0) - (already.get(pid) || 0), 0)
+      const stock = cfg.limitByStock ? stockMap.get(pid) || 0 : orderRemain
+      const avail = cfg.limitByStock ? Math.max(Math.min(orderRemain, stock), 0) : orderRemain
       if (qty > avail) {
         const prod = await db.first('SELECT name FROM products WHERE id = ?', pid)
-        bad(`「${prod ? prod.name : pid}」可退数量仅 ${avail}，本次退货 ${qty} 超出`)
+        bad(
+          cfg.limitByStock
+            ? `「${prod ? prod.name : pid}」可退数量仅 ${avail}（原单可退 ${orderRemain}，当前库存 ${stock}），本次退货 ${qty} 超出`
+            : `「${prod ? prod.name : pid}」可退数量仅 ${avail}，本次退货 ${qty} 超出`
+        )
       }
       already.set(pid, (already.get(pid) || 0) + qty)
     }
@@ -488,8 +541,16 @@ export function makeReturnRoutes(cfg) {
     const items = await db.all(`SELECT * FROM ${RI} WHERE return_id = ? ORDER BY id`, id)
     if (!items.length) bad('退货明细为空')
 
-    // Python 版用「默认仓库」，不用原单仓库，这里保持一致
-    const wid = await defaultWarehouseId(db, env)
+    // 采购退货（limitByStock）与本单收货用同一个仓库：
+    // 否则会出现「按 A 仓校验可退、却扣 B 仓库存」。
+    // 销售退货是入库，仍用默认仓库。
+    let wid
+    if (cfg.limitByStock && r[cfg.source.fk]) {
+      const ord = await db.first(`SELECT warehouse_id FROM ${O} WHERE id = ?`, r[cfg.source.fk])
+      wid = (ord && ord.warehouse_id) || (await defaultWarehouseId(db, env))
+    } else {
+      wid = await defaultWarehouseId(db, env)
+    }
 
     const statements = []
     for (const item of items) {

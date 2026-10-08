@@ -540,11 +540,24 @@ async def purchase_return_available(order_id: int, db: Session = Depends(get_db)
     pids = [i.product_id for i in order.items]
     prods = {p.id: p for p in db.query(Product).filter(Product.id.in_(pids)).all()} if pids else {}
 
+    # 采购退货是「出库」，可退数量必须以当前库存为上限：
+    # 已经卖掉/调走的货不在库里，想退也退不出去（否则出库时会被负库存拦下）。
+    # 仓库取与本单收货相同的那个，保证「校验的库存」就是「出库要扣的库存」。
+    wid = order.warehouse_id or default_warehouse_id(db)
+    stock_map = {}
+    if pids:
+        for inv in db.query(Inventory).filter(
+                Inventory.warehouse_id == wid,
+                Inventory.product_id.in_(pids)).all():
+            stock_map[inv.product_id] = inv.quantity or 0
+
     items = []
     for it in order.items:
         p = prods.get(it.product_id)
         received = it.received_quantity or 0
         already = returned.get(it.product_id, 0)
+        order_remain = max(received - already, 0)   # 只按原单算的可退
+        stock = stock_map.get(it.product_id, 0)     # 当前库存
         items.append({
             "product_id": it.product_id,
             "product_name": p.name if p else f"商品#{it.product_id}",
@@ -553,7 +566,9 @@ async def purchase_return_available(order_id: int, db: Session = Depends(get_db)
             "sold_quantity": it.quantity,
             "received_quantity": received,
             "returned_quantity": already,
-            "available_quantity": max(received - already, 0),
+            "stock_quantity": stock,
+            "order_returnable_quantity": order_remain,
+            "available_quantity": max(min(order_remain, stock), 0),
             "price": float(it.price),
             "tax_rate": float(it.tax_rate or 0),
         })
@@ -567,7 +582,7 @@ async def purchase_return_available(order_id: int, db: Session = Depends(get_db)
         "supplier_name": sup.name if sup else "",
         "supplier_contact": sup.contact if sup else "",
         "supplier_phone": sup.phone if sup else "",
-        "warehouse_id": order.warehouse_id,
+        "warehouse_id": wid,
         "items": items,
     }
 
@@ -592,17 +607,30 @@ async def create_purchase_return(data: dict, db: Session = Depends(get_db), curr
     received = {i.product_id: (i.received_quantity or 0) for i in order.items}
     already = _returned_qty_map(db, PurchaseReturn, PurchaseReturn.purchase_order_id, order_id)
 
+    # 可退上限 = min(原单未退数量, 当前库存)。退货要出库，库里没有就退不出去。
+    wid = order.warehouse_id or default_warehouse_id(db)
+    pids = [it["product_id"] for it in data["items"]]
+    stock_map = {}
+    if pids:
+        for inv in db.query(Inventory).filter(
+                Inventory.warehouse_id == wid,
+                Inventory.product_id.in_(pids)).all():
+            stock_map[inv.product_id] = inv.quantity or 0
+
     for item in data["items"]:
         pid = item["product_id"]
         qty = int(item.get("quantity") or 0)
         if qty <= 0:
             raise HTTPException(400, "退货数量必须大于 0")
-        avail = received.get(pid, 0) - already.get(pid, 0)
+        order_remain = max(received.get(pid, 0) - already.get(pid, 0), 0)
+        stock = stock_map.get(pid, 0)
+        avail = max(min(order_remain, stock), 0)
         if qty > avail:
             p = db.query(Product).filter(Product.id == pid).first()
             raise HTTPException(
                 400,
-                f"「{p.name if p else pid}」可退数量仅 {avail}，本次退货 {qty} 超出"
+                f"「{p.name if p else pid}」可退数量仅 {avail}"
+                f"（原单可退 {order_remain}，当前库存 {stock}），本次退货 {qty} 超出"
             )
         already[pid] = already.get(pid, 0) + qty
 
@@ -636,7 +664,8 @@ async def approve_purchase_return(rid: int, db: Session = Depends(get_db), curre
 async def ship_purchase_return(rid: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     pr = db.query(PurchaseReturn).filter(PurchaseReturn.id == rid).first()
     if not pr or pr.status != 1: raise HTTPException(400, "状态错误")
-    wid = default_warehouse_id(db)
+    # 与本单收货用同一个仓库：否则会出现「按 A 仓校验可退、却扣 B 仓库存」
+    wid = (pr.purchase_order.warehouse_id if pr.purchase_order else None) or default_warehouse_id(db)
     for item in pr.items:
         apply_stock(db, item.product_id, wid, -item.quantity, "purchase_return_out",
                     "purchase_return", pr.id, pr.return_no)

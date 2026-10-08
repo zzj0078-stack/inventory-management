@@ -21,14 +21,19 @@ export default defineConfig({
   },
   server: {
     port: 3040,
+    // 绑 IPv4。不写 host 时 Vite 会绑到 ::1（IPv6），
+    // 结果 http://127.0.0.1:3040 打不开，只有 localhost 能开，
+    // 看起来就像「本地连不上数据库」。
+    // 显式绑 127.0.0.1 后 127.0.0.1 和 localhost 都能访问。
+    host: '127.0.0.1',
     proxy: {
       '/api': {
-        target: 'http://localhost:3041',
+        target: 'http://127.0.0.1:3041',
         changeOrigin: true,
       },
       // 商品图片等上传文件由后端提供
       '/uploads': {
-        target: 'http://localhost:3041',
+        target: 'http://127.0.0.1:3041',
         changeOrigin: true,
       }
     }
